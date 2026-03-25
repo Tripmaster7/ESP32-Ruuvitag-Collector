@@ -11,7 +11,6 @@
 
 class Measurement{
 private:
-    std::string mac;
     double temperature {0.0};
     double humidity {0.0};
     double pressure {0.0};
@@ -31,13 +30,11 @@ private:
 
 public:
     enum measurementTypeT {undefined,ruuviV3,ruuviV5} measurementType;
-    enum measurementFormatT {shortColumnName,longColumnName};
     Measurement();
     ~Measurement();
     void setTime(time_t epochIn);
     void setType(Measurement::measurementTypeT t);
     void build(std::string dataIn);
-    void buildStorage();
     double getTemperature();
     double getHumidity();
     double getPressure();
@@ -49,9 +46,6 @@ public:
     int getTXdBm();
     int getMoveCount();
     int getSequence();
-
-    std::string toString();
-    std::string toStr(Measurement::measurementFormatT measurementFormat);
 };
 
 #endif

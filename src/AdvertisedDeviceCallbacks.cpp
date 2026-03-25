@@ -12,6 +12,11 @@ void AdvertisedDeviceCallbacks::onResult(BLEAdvertisedDevice advertisedDevice){
 
     mac=buildMac(bleAddress);
 
+    // Track all discovered Ruuvi sensors regardless of whitelist
+    if(data.length() >= 2 && (uint8_t)data[0] == 0x99 && (uint8_t)data[1] == 0x04) {
+        config::discoveredSensors.insert(mac);
+    }
+
     for(auto m:config::macWhiteList){
         if(mac==m){
             numberOfWhiteListedResults++;
@@ -26,10 +31,8 @@ void AdvertisedDeviceCallbacks::onResult(BLEAdvertisedDevice advertisedDevice){
         dh.setTime();
         dh.buildMeasurement();
         dh.writeStorage();
-        dh.writeInflux();
         dh.sendMqtt();
     }
-    Serial.println("----------------------------------");
     if(config::macWhiteList.size()>0){
         if(numberOfWhiteListedResults==config::macWhiteList.size()){
             global::pBLEScan->stop();

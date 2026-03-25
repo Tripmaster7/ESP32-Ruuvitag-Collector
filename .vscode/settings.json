@@ -1,3 +1,19 @@
 {
-    "C_Cpp.errorSquiggles": "Disabled"
+    "C_Cpp.errorSquiggles": "Disabled",
+    "vsmqtt.brokerProfiles": [
+        {
+            "name": "Loxberry",
+            "host": "192.168.1.71",
+            "port": 1883,
+            "clientId": "vsmqtt_client_147e",
+            "password": "kPHQaHBSPVs1eelF",
+            "username": "loxberry",
+            "defaultsForPublish": {
+                "topic": "ruuviesp32/Open",
+                "payload": "1",
+                "qos": 0,
+                "retain": false
+            }
+        }
+    ]
 }

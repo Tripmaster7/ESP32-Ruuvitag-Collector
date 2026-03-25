@@ -83,46 +83,12 @@ void Datahandler::writeStorage(){
     Serial.println(measurement.getTemperature());
 }
 
-void Datahandler::writeInflux(){
-    std::stringstream stream;
-
-    if(measurement.measurementType==Measurement::undefined){
-        return;
-    }
-
-    if(WiFi.isConnected()){
-        stream << config::influxMeasurement << ",";
-        stream << "mac=" << macAddress << " ";
-        stream << measurement.toString() << " ";
-        stream << epoch;
-        Serial.println("Writing a single row to Influx");
-        if(network::influx::write(stream.str())){
-            if(storage::spif::exists(macAddress)){
-                if(storage::spif::read(macAddress,storage::OutputType::influx)){
-                    storage::spif::deleteFile(macAddress);
-                }else{
-                    global::successfulRun=false;
-                }
-            }
-        }else{
-            storage::spif::write(macAddress,storageData);
-            global::successfulRun=false;
-        }
-    }else{
-        storage::spif::write(macAddress,storageData);
-    }
-}
-
 void Datahandler::sendMqtt(){
     std::string topic;
     std::string payload;
 
     if(measurement.measurementType==Measurement::undefined){
         return;
-    }
-
-    if(global::bootCount<2 || global::bootCount % 7 == 0){
-        network::mqtt::publishDiscovery(macAddress);
     }
 
     std::stringstream stream;
@@ -147,25 +113,4 @@ void Datahandler::sendMqtt(){
 
     payload=stream.str();
     network::mqtt::publish(topic,payload);
-}
-
-std::string Datahandler::toString(){
-    if(measurement.measurementType!=Measurement::undefined){
-        return measurement.toString();
-    }else{
-        return "Measurement undefined";
-    }
-}
-
-void Datahandler::printData(){
-    Serial.print("MAC: ");
-    Serial.print(macAddress.c_str());
-    Serial.print(" length: ");
-    Serial.println(dataLength);
-
-	std::stringstream stream;
-    for(auto i:data){
-		stream << std::setfill('0') << std::setw(2) << std::uppercase << std::hex << (int)i << ' ';
-    }
-    Serial.println(stream.str().c_str());
 }

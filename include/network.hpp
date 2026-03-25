@@ -6,25 +6,25 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include "config.hpp"
-#include "Influx.hpp"
+#include "WifiBootstrap.hpp"
 #include "PubSubClient.h"
 #include <sstream>
 
 namespace network {
     namespace wifi{
-        void begin();
+        bool begin();
     }
     namespace ntp{
         void update();
     }
-    namespace influx{
-        void begin();
-        bool write(std::string dataIn);
-    }
     namespace mqtt{
-        void begin();
+        bool begin();
         void publish(std::string topic,std::string payload);
-        void publishDiscovery(std::string mac);
+        void subscribe();
+        void loop();
+        bool isConnected();
+        bool isPortalRequested();
+        void clearPortalFlag();
     }
 }
 

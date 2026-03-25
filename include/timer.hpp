@@ -6,7 +6,6 @@
 #include <esp_system.h>
 #include <time.h>
 #include "config.hpp"
-#include <sstream>
 
 namespace timer{
     void printLocalTime();
@@ -16,7 +15,6 @@ namespace timer{
     }
     namespace deepsleep{
         void updateBootCount();
-        int getBootCount();
         void start();
         void printBootCount();
     }

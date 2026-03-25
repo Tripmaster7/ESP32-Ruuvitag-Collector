@@ -263,7 +263,12 @@ uint16_t PubSubClient::readPacket(uint8_t* lengthLength) {
         if(!readByte(&digit)) return 0;
         buffer[len++] = digit;
         length += (digit & 127) * multiplier;
-        multiplier *= 128;
+        multiplier <<= 7;
+        if (multiplier > 2097152UL) { // 128^3, guard against overflow
+            _state = MQTT_DISCONNECTED;
+            _client->stop();
+            return 0;
+        }
     } while ((digit & 128) != 0);
     *lengthLength = len-1;
 

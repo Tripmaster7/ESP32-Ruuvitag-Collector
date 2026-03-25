@@ -19,20 +19,16 @@ class Datahandler{
     std::string storeFileName;
     Measurement measurement;
     std::string storageData;
-    std::string compressedStorageData;
     void prepareStorage();
 
   public:
     Datahandler(std::string dataIn, std::string macAddressIn);
     ~Datahandler();
-    void printData();
     void buildMeasurement();
     void writeStorage();
     void setTime();
     void setTime(time_t epochIn);
-    void writeInflux();
     void sendMqtt();
-    std::string toString();
 };
 
 #endif

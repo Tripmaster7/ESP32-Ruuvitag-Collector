@@ -4,11 +4,10 @@
 #define config_h
 #include <string>
 #include <vector>
-#include "Influx.hpp"
+#include <set>
 #include <esp_system.h>
 #include <BLEDevice.h>
-#define DEBUG_ERROR
-#define DEBUG_INFORMATION
+#define FIRMWARE_VERSION "2.5.0"
 
 // See setting descriptions in config.cpp where you can also set values
 // Do not set any values here.
@@ -16,7 +15,6 @@ namespace config{
     extern const std::string wiFiSSD;
     extern const std::string wiFiPassword;
     extern const std::string ntpServerIP;
-    extern bool longColumnNames;
 
     extern const int watchdogTimeout;
     extern const int deepSleepWakeUpAtSecond;
@@ -25,37 +23,19 @@ namespace config{
     extern const int turnOnWifiEvery;
 
     extern std::vector<std::string>macWhiteList;
-    
-    struct InfluxConfiguration{
-        std::string database;
-        std::string username;
-        std::string password;
-        std::string host;
-        int port;
-    };
-    extern std::string influxMeasurement;
-    extern std::vector<InfluxConfiguration> influxConfiguration;
+    extern std::set<std::string> discoveredSensors;
     
     extern std::string mqttTopicPrefix;
     extern std::string mqttServerIP;
     extern int mqttServerPort;
     extern std::string mqttServerUsername;
     extern std::string mqttServerPassword;
-    extern std::string mqttHomeAssistantDiscoveryTopic;
-    extern bool useSDCard;
-    extern bool moduleIsESP32Cam;
-
-    void setValues();
-
 }
 namespace global{
 
     extern const uint64_t nSToSFactor;
     extern const uint64_t uSToSFactor;
     extern const uint64_t mSToSFactor;
-
-    extern const int maxRowsInInfluxWrite;
-    extern std::vector<Influx> influx;
 
     struct RecordHeader{
         bool operator==(const RecordHeader &other)const{

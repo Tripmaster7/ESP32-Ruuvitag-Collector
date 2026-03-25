@@ -1,179 +1,201 @@
 # ESP32-Ruuvitag-Collector
-This software can be used to collect measurement data from Ruuvitag Bluetooth Low Energy devices https://ruuvi.com/
 
-Main functionalities are:
-- Influx database sending
-- MQTT publishing
-- MQTT Automatic discovery for Home Assistant
-- Store measurements to ESP32 own SPIF File System
-- Store measurements to microSD card
-- Use as a primary weather station data collector by sending measuments in regular intervals
-- Use as a backup weather station data collector with low energy consumption
-- Ruuvitag white list, collect measurements from listed Ruuvitags only
-- Print and send data from offline SPIF File storage or microSD card
+Collect measurement data from [Ruuvitag](https://ruuvi.com/) Bluetooth Low Energy sensors and publish to an MQTT broker. Designed for low-power operation with deep sleep between measurement cycles.
 
-## Mandatory network configurations
-All configurations are in `config.cpp` file
+## Features
 
-WiFi SSD name
+- **MQTT publishing** — sensor data sent as JSON to configurable topics
+- **WiFi captive portal** — zero-config WiFi provisioning via WPA2-protected AP
+- **MQTT configuration portal** — configure broker, credentials, topic prefix, and sensor selection from a web UI
+- **Sensor selection** — choose which Ruuvitags to monitor via checkboxes (discovered sensors shown automatically)
+- **OTA firmware updates** — upload new firmware via the web portal (no USB needed after initial flash)
+- **Remote portal access** — open the config portal remotely by publishing to an MQTT topic
+- **SPIFFS offline storage** — measurements buffered locally when WiFi is off
+- **Deep sleep** — wakes at configurable intervals, scans BLE, publishes, and sleeps again
+- **Factory reset** — clear all stored WiFi and MQTT settings from the web portal
 
-`wiFiSSD="MyHomeWifiAP"`
+## Version
 
-WiFi SSD password
+Current firmware version: **2.5.0**
 
-`wiFiPassword="sweetHome"`
+## Contributors
 
-NTP Server, use value 216.239.35.0 if you dont' know any better one. Well functioning NTP server is important for good operation of this software. Use IP address, not name.
+- Hannu Pirila (original author)
+- Jens Hoevelman
+- GitHub Copilot (AI-assisted development)
 
-`ntpServerIP="216.239.35.0"`
+## Quick Start
 
-## Optional network configurations
-These configurations provide sending data to outside servers
-### Influx servers
-Currently only HTTP with username and password is supported.
+1. Flash the firmware to an ESP32 via USB (see [Compiling](#compiling))
+2. Connect to the **RuuviCollector** WiFi AP (password: `ruuvi1234`)
+3. Enter your home WiFi credentials in the captive portal
+4. The MQTT configuration portal opens automatically — enter your broker details
+5. The device begins its deep sleep cycle, scanning Ruuvitags and publishing data every 60 seconds
 
-Influx measurement name, also known as table name
+## WiFi Configuration
 
-`influxMeasurement="rm"`
+### Captive Portal (recommended)
 
-Influx server IP address. Use IP address, not name.
+On first boot (or when stored credentials fail), the device starts a WPA2-protected access point:
 
-`iC.host="192.168.1.100"`
+- **SSID:** `RuuviCollector`
+- **Password:** `ruuvi1234`
 
-Influx server port.
+Connect to the AP and browse to `http://192.168.123.1`. Enter your home WiFi SSID and password. Credentials are stored in NVS (non-volatile storage) and persist across reboots and firmware updates.
 
-`iC.port=8086`
+### Compile-time defaults (fallback)
 
-Influx database name
+Edit `config.cpp` before flashing:
 
-`iC.database="test0"`
+```cpp
+wiFiSSD = "MyHomeWifiAP";
+wiFiPassword = "sweethome";
+```
 
-Influx database username for writing
+These are used only if no stored credentials exist or if stored credentials fail.
 
-`iC.username="thewriter"`
+## MQTT Configuration
 
-and password
+### Web Portal
 
-`iC.password="iamwriter"`
+All MQTT settings can be configured at runtime via the built-in web portal. The portal opens automatically on first boot after WiFi connects. It can also be opened remotely (see [Remote Portal Access](#remote-portal-access)).
 
-Add Influx server to configuration. If you don't have any Influx server, make sure below command is commented.
+The portal allows you to configure:
 
-`influxConfiguration.push_back(iC);`
+| Setting | Description | Default |
+|---------|-------------|---------|
+| Server | MQTT broker IP or hostname | `192.168.1.100` |
+| Port | MQTT broker port | `1883` |
+| Username | MQTT authentication username | `thepublisher` |
+| Password | MQTT authentication password | `iamthepublisher` |
+| Topic Prefix | Base topic for all published data | `ruuviesp32` |
+| Sensors | Checkboxes to select which Ruuvitags to monitor | All |
 
-Optionally you can add an other server by specifying all or some of the new configuration.
+All settings are stored in NVS and persist across reboots and firmware updates.
 
-2nd Influx server IP address. Use IP address, not name.
+### Compile-time defaults
 
-`iC.host="1.2.3.4"`
+Default MQTT values can also be set in `config.cpp`. These are used only until the first portal save.
 
-Add 2nd Influx server to configuration. Other than IP configuration will be same as in 1st server.     `
+## MQTT Topics
 
-`influxConfiguration.push_back(iC);`
+| Topic | Direction | Description |
+|-------|-----------|-------------|
+| `<prefix>/<MAC>/state` | Publish | Sensor data JSON |
+| `<prefix>/online` | Publish | Device IP address on connect |
+| `<prefix>/status` | Publish | Portal status messages |
+| `<prefix>/OpenPortal` | Subscribe | Send `1` (retained) to open portal, `0` to close |
 
-### MQTT Server
-MQTT server also known as broker IP address. Set to "" to disable MQTT.
+### Example Sensor Payload
 
-`mqttServerIP="192.168.1.100"`
+```json
+{
+  "temperature": 12.33,
+  "humidity": 53.60,
+  "pressure": 993.70,
+  "battery": 2.978,
+  "accel_x": 0.956,
+  "accel_y": -0.368,
+  "accel_z": -0.024,
+  "epoch": 1774395693,
+  "txdbm": 4,
+  "move_count": 120,
+  "sequence": 34147
+}
+```
 
-and port number
+## Remote Portal Access
 
-`mqttServerPort=1883`
+You can open the configuration portal remotely without physical access to the device:
 
-Topic name this ESP32 is publishing. The complete topic will be mqttTopicPrefix/+Ruuvitag mac address/+state. Example: ruuviesp32/C2CA7F7D07F5/state
+1. Publish `1` (retained) to `<prefix>/OpenPortal` on your MQTT broker
+2. On the next wake cycle, the device detects the message and starts the web portal
+3. Browse to the device IP (shown on the `<prefix>/online` topic) to access the portal
+4. When done, publish `0` (retained) to `<prefix>/OpenPortal` — or save settings in the portal to close it
 
-`mqttTopicPrefix="ruuviesp32"`
+## OTA Firmware Updates
 
-Username for MQTT server
+The web portal includes a firmware upload section. Upload a `.bin` file and the device flashes the new firmware and restarts automatically. The partition table supports two app slots for safe OTA (rollback on failure).
 
-`mqttServerUsername="thepublisher"`
+## Sensor Selection
 
-and password
+Discovered Ruuvitags appear as checkboxes in the configuration portal:
 
-`mqttServerPassword="iamthepublisher"`
+- **live** — sensor was seen during the most recent BLE scan
+- **saved** — sensor is in the stored whitelist
 
-Home Assistant can detect Ruuvitags automatically using MQTT discovery
-Enter name of the topic or leave empty to disable MQTT discovery
+Check the sensors you want to monitor. If none are checked, all discovered sensors are monitored. Using a whitelist shortens BLE scan time and saves power — the scan stops as soon as all whitelisted devices are found.
 
-`mqttHomeAssistantDiscoveryTopic="homeassistant"`
+## Data Collection Settings
 
-## Data collection settings
+All timing settings are in `config.cpp`:
 
-Ruuvitag white list. You can put one or several Ruuvitag mac addresses to white list. Then data is collected only from those Ruuvitags. Even you have only one Ruuvitag, you should still put it into a white list because this shortens Bluetooth scan time. Once all white listed devices are scanned, Bluetooth is turned off and this way energy is saved.
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `deepSleepWakeUpAtSecond` | Wake interval in seconds | `60` |
+| `deepSleepWakeUpOffset` | Offset to shift wake-up time | `0` |
+| `turnOnWifiEvery` | WiFi activation interval in seconds (`0` = every wake) | `900` |
 
-At the beginning start with empty white list
+### Real-time mode
 
-`macWhiteList={}`
+Set `turnOnWifiEvery=0` to connect WiFi and publish MQTT data on every wake cycle.
 
-And when you know your MAC addresses, add them to white list. You can see the addresses from serial console, Influx database or any MQTT client subscribing the topic, example Home Assistant.
-Put one or more MAC addresses without any : marks as below.
+### Battery-saving mode
 
-`macWhiteList={"D96BF9D2116A","C2CA7F7D07F5"}`
+Set `turnOnWifiEvery=900` (or higher) to store data locally in SPIFFS and only connect WiFi periodically. NTP time is updated only when WiFi is active, so longer intervals may cause clock drift.
 
-### Primary weather station data collector
-With these settings Ruuvitag data is collected every minute or 60 times per hour and it is attempted to collect at the beginning of each minute. The data is sent to Influx and MQTT servers immediately.
+## Network Configuration
 
-Wake up from deep sleep at second 0, example 12:01:00, 12:02:00, 12:03:00 etc.
+NTP server (use IP address, not hostname):
 
-`deepSleepWakeUpAtSecond=60`
+```cpp
+ntpServerIP = "216.239.35.0";
+```
 
-You can adjust wake up to example at second 58 by setting value -2. Then the wake-up happens at 12:00:58, 12:01:58, 12:02:58 etc.
+Time zone (sign is positive for west of Prime Meridian, negative for east):
 
-`deepSleepWakeUpOffset=0`
- 
- As a primary weather station data collector we want to turn on WiFi every time ESP32 wakes up. Value 0 does that.
- 
- `turnOnWifiEvery=0`
- 
- ### Backup weather station data collector
-With these settings Ruuvitag data is collected every minute or 60 times per hour and it is attempted to collect at the beginning of each minute. All collected data is sent to Influx servers every 15 minutes, that is 15 measurement reports. MQTT is updated only every 15 minutes.
-
-Wake up from deep sleep at second 0, example 12:01:00, 12:02:00, 12:03:00 etc.
-
-`deepSleepWakeUpAtSecond=60`
-
-You can adjust wake up to example at second 58 by setting value -2. Then the wake-up happens at 12:00:58, 12:01:58, 12:02:58 etc.
-
-`deepSleepWakeUpOffset=0`
- 
-As a backup weather station data collector we want to save energy and WiFi is turned on only every 15 minutes. This saves energy and allows running on battery power for much longer time than with primary weather station settings. You can set also longer period example value 7200 would turn  WiFi ON only every 2 hours. But note that ESP32 clock may slip many seconds already in two hours and NTP time is updated only when WiFi is turned ON.
-
- `turnOnWifiEvery=900`
- 
-### Additional settings
-
-Column names for Influx. With value true the column names will be like temperature, humidty, pressure etc. and with value false the column names will be t, h, p etc.
-
-`longColumnNames=true`
-
-Time zone is used only for console and does not impact to data sent to Influx. If you time zone is example UTC+3, set timeZone to value UTC-3. More details here https://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html
-
-`timeZone="UTC-3"`
-
-Set value `true` to store measurements to microSD or SD card. 
-
-`useSDCard=false"`
-
-Set value `true` if you are using ESP32CAM module. It has microSD card slot but also a flash LED for camera which is flashing everytime you write to microSD card. This setting improves the behaviour of flash LED.
-
-`moduleIsESP32Cam=false`
-
-## Managing offline SPIF File System Storage and files
-When you reset ESP32 you have a possibility to enter menu from serial console by pressing any number key. Note that you have only 2 seconds time to do so. If you fail, just reset and try again. In menu you have various options to print and send files to Influx database. You can also delete files and format the entire SPIFFS.
+```cpp
+timeZone = "UTC-3";
+```
 
 ## Compiling
-This software requires PlatformIO environment for compiling. Easiest way to get it is perhaps using Visual Studio Code and its PlatformIO add on. Use your favorite search engine to find out more on setting up PlatformIO.
 
-## Testing
-Don't have a Ruuvitag but still want to try? You can use your Android device to emulate Ruuvitag.
+This project uses [PlatformIO](https://platformio.org/). The easiest setup is VS Code with the PlatformIO extension.
 
-- Get nRF Connect app from Google Play Store
-- Start App and go to Advertiser tab
-- Select + from bottom right corner
-- For Display name put Ruuvitag Emulator
-- Choose Add Record - Manufacturer Data
-- For 16 bit Company Identifier put 0499
-- For Data put 0501AE1E23C75000CC008003B870F663D9A1F109FC2FF596
-- Turn On Ruuvitag Emulator on Advertiser tab and you should see measument coming
+```bash
+# Build
+pio run
+
+# Upload via USB
+pio run --target upload
+
+# Monitor serial output
+pio device monitor --baud 115200
+```
+
+## Testing Without a Ruuvitag
+
+You can emulate a Ruuvitag with an Android device:
+
+1. Install **nRF Connect** from Google Play Store
+2. Go to the **Advertiser** tab
+3. Tap **+** (bottom right) and name it `Ruuvitag Emulator`
+4. Choose **Add Record** → **Manufacturer Data**
+5. Set **16-bit Company Identifier** to `0499`
+6. Set **Data** to `0501AE1E23C75000CC008003B870F663D9A1F109FC2FF596`
+7. Enable the advertiser — measurements should appear
+
+## Factory Reset
+
+From the web portal, click the **Factory Reset** button to clear all stored WiFi and MQTT settings. The device restarts and enters WiFi captive portal mode.
+
+## Security
+
+- CSRF tokens on all portal form submissions
+- Input validation (printable ASCII only, length-limited) on all user-provided fields
+- PubSubClient patched for CVE-2023-52120 (buffer overflow)
+- MQTT callback accepts only exact topic matches with strict value checking
 
 ## License
-MIT License is used for this software.
+
+MIT License — see [LICENSE](LICENSE) for details.
