@@ -7,7 +7,7 @@
 #include <set>
 #include <esp_system.h>
 #include <BLEDevice.h>
-#define FIRMWARE_VERSION "2.5.0"
+#define FIRMWARE_VERSION "2.6.3"
 
 // See setting descriptions in config.cpp where you can also set values
 // Do not set any values here.
@@ -30,6 +30,9 @@ namespace config{
     extern int mqttServerPort;
     extern std::string mqttServerUsername;
     extern std::string mqttServerPassword;
+
+    extern bool powerSave;   // true=deep sleep between scans, false=stay awake
+    extern bool testMode;    // true=scan every 10s, false=production interval
 }
 namespace global{
 

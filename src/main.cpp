@@ -1,6 +1,7 @@
 // main.cpp - Part of ESP32 Ruuvitag Collector
 // Hannu Pirila 2019
 #include <Arduino.h>
+#include <esp_ota_ops.h>
 #include "config.hpp"
 #include "AdvertisedDeviceCallbacks.hpp"
 #include "storage.hpp"
@@ -10,6 +11,13 @@
 
 void setup() {
   Serial.begin(115200);
+  esp_ota_mark_app_valid_cancel_rollback();
+
+  // Report boot partition
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  Serial.printf("Firmware v" FIRMWARE_VERSION " running from partition: %s\n",
+                running ? running->label : "unknown");
+
   timer::watchdog::set();
   timer::watchdog::feed();
   timer::deepsleep::printBootCount();
@@ -81,13 +89,60 @@ void setup() {
   // Check if portal was requested via MQTT
   if(network::mqtt::isPortalRequested()){
     Serial.println("Portal requested via MQTT, staying awake...");
+
     mqttconfig::runConfigPortalUntil([]() -> bool {
       return !network::mqtt::isPortalRequested();
     });
   }
 
-  timer::deepsleep::start();
+  if(config::powerSave){
+    timer::deepsleep::start();
+  }
+  // Non-power-save: stay awake, WiFi on, scan periodically
+  Serial.println("Continuous mode — WiFi stays on");
 }
 
 void loop() {
+  if(!config::powerSave){
+    unsigned long interval = config::testMode ? 10000 : 900000; // 10s or 15min
+
+    timer::watchdog::feed();
+
+    // BLE scan — clear cache so devices are re-reported
+    storage::begin();
+    global::pBLEScan->clearResults();
+    BLEScanResults foundDevices = global::pBLEScan->start(global::BLEscanTime);
+    storage::end();
+
+    // Reconnect MQTT if needed
+    if(!network::mqtt::isConnected()){
+      network::mqtt::begin();
+    }
+
+    // Check for portal command
+    network::mqtt::subscribe();
+    for(int i = 0; i < 100; i++){
+      network::mqtt::loop();
+      timer::watchdog::feed();
+      delay(10);
+    }
+    if(network::mqtt::isPortalRequested()){
+      Serial.println("Portal requested via MQTT...");
+      mqttconfig::runConfigPortalUntil([]() -> bool {
+        return !network::mqtt::isPortalRequested();
+      });
+    }
+
+    // Wait for remaining interval
+    unsigned long scanMs = (unsigned long)global::BLEscanTime * 1000 + 1000;
+    if(interval > scanMs){
+      unsigned long waitMs = interval - scanMs;
+      unsigned long start = millis();
+      while(millis() - start < waitMs){
+        network::mqtt::loop();
+        timer::watchdog::feed();
+        delay(100);
+      }
+    }
+  }
 }

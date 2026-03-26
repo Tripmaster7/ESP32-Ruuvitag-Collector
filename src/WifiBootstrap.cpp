@@ -5,9 +5,9 @@
 #include "timer.hpp"
 #include <WiFi.h>
 #include <WebServer.h>
+#include <DNSServer.h>
 #include <Preferences.h>
 #include <esp_random.h>
-#include <esp_wifi.h>
 
 namespace wifibootstrap {
     namespace {
@@ -15,7 +15,7 @@ namespace wifibootstrap {
         const char* NVS_KEY_SSID = "ssid";
         const char* NVS_KEY_PASS = "pass";
         const char* AP_SSID = "RuuviCollector";
-        const char* AP_PASS = "ruuvi1234";
+        const char* AP_PASS = "";
         const int CONNECT_TIMEOUT_MS = 10000;
 
         Preferences preferences;
@@ -23,9 +23,10 @@ namespace wifibootstrap {
         String csrfToken;
 
         String generateToken() {
-            uint32_t r = esp_random();
-            char buf[9];
-            snprintf(buf, sizeof(buf), "%08x", r);
+            uint32_t r1 = esp_random();
+            uint32_t r2 = esp_random();
+            char buf[17];
+            snprintf(buf, sizeof(buf), "%08x%08x", r1, r2);
             return String(buf);
         }
 
@@ -100,6 +101,8 @@ h2{color:#0ff}
                 return true;
             }
             Serial.println("WiFi connection failed.");
+            WiFi.disconnect(true);
+            delay(100);
             return false;
         }
 
@@ -119,45 +122,84 @@ h2{color:#0ff}
             return ssid.length() > 0;
         }
 
-        bool runCaptivePortal() {
-            unsigned long bootMs = millis();
-            Serial.print("[");
-            Serial.print(bootMs / 1000);
-            Serial.println("s] Starting WiFi configuration AP...");
-
-            // 1) Start WiFi AP first (server needs the network stack)
-            WiFi.mode(WIFI_AP);
+        bool startAP() {
+            WiFi.disconnect(true);
             delay(100);
 
+            WiFi.mode(WIFI_AP);
+            WiFi.setSleep(false);
+
+            // Start AP first so the interface exists
+            bool openAp = strlen(AP_PASS) == 0;
+            bool ok = openAp
+                ? WiFi.softAP(AP_SSID, nullptr, 6, 0, 4)
+                : WiFi.softAP(AP_SSID, AP_PASS, 6, 0, 4);
+            delay(500);
+
+            // Then configure IP on the running interface
             IPAddress apIP(192, 168, 123, 1);
             IPAddress gateway(192, 168, 123, 1);
             IPAddress subnet(255, 255, 255, 0);
             WiFi.softAPConfig(apIP, gateway, subnet);
-            WiFi.softAP(AP_SSID, AP_PASS);
             delay(500);
 
-            Serial.print("[");
-            Serial.print(millis() / 1000);
-            Serial.print("s] AP started - SSID: ");
-            Serial.print(AP_SSID);
-            Serial.print(" Pass: ");
-            Serial.print(AP_PASS);
-            Serial.print(" IP: ");
-            Serial.println(WiFi.softAPIP());
+            Serial.printf("  AP: ip=%s ok=%s\n",
+                          WiFi.softAPIP().toString().c_str(),
+                          ok ? "yes" : "no");
+            return ok;
+        }
 
-            // 2) Now set up and start the web server
+        bool runCaptivePortal() {
+            Serial.printf("[%lus] Starting WiFi configuration AP...\n", millis() / 1000);
+
+            bool apOk = startAP();
+            Serial.printf("[%lus] AP %s - SSID: %s  IP: %s\n",
+                          millis() / 1000, apOk ? "started" : "FAILED",
+                          AP_SSID, WiFi.softAPIP().toString().c_str());
+
+            // DNS: resolve all domains to AP IP (required for Windows connectivity check)
+            DNSServer dns;
+            dns.start(53, "*", WiFi.softAPIP());
+
+            // Set up web server
             WebServer server(80);
-            volatile bool credentialsSaved = false;
+            bool credentialsSaved = false;
             String newSsid, newPass;
+            String portalUrl = String("http://") + WiFi.softAPIP().toString() + "/";
 
             auto servePortal = [&server]() {
-                csrfToken = generateToken();
+                if (csrfToken.length() == 0) {
+                    csrfToken = generateToken();
+                }
                 String html = FPSTR(PORTAL_HTML);
                 html.replace("%TOKEN%", csrfToken);
                 server.send(200, "text/html", html);
             };
 
+            auto redirectToPortal = [&server, &portalUrl]() {
+                server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+                server.sendHeader("Pragma", "no-cache");
+                server.sendHeader("Expires", "-1");
+                server.sendHeader("Location", portalUrl, true);
+                server.send(302, "text/plain", "");
+            };
+
             server.on("/", HTTP_GET, [servePortal]() { servePortal(); });
+
+            // Common captive portal probe URLs.
+            server.on("/connecttest.txt", HTTP_GET, [redirectToPortal]() { redirectToPortal(); });
+            server.on("/redirect", HTTP_GET, [redirectToPortal]() { redirectToPortal(); });
+            server.on("/ncsi.txt", HTTP_GET, [redirectToPortal]() { redirectToPortal(); });
+            server.on("/generate_204", HTTP_GET, [redirectToPortal]() { redirectToPortal(); });
+            server.on("/gen_204", HTTP_GET, [redirectToPortal]() { redirectToPortal(); });
+            server.on("/hotspot-detect.html", HTTP_GET, [redirectToPortal]() { redirectToPortal(); });
+            server.on("/canonical.html", HTTP_GET, [redirectToPortal]() { redirectToPortal(); });
+            server.on("/success.txt", HTTP_GET, [redirectToPortal]() { redirectToPortal(); });
+
+            // Captive portal detection: redirect to portal root
+            server.onNotFound([redirectToPortal]() {
+                redirectToPortal();
+            });
 
             server.on("/save", HTTP_POST, [&]() {
                 String token = server.arg("token");
@@ -181,29 +223,19 @@ h2{color:#0ff}
             });
 
             server.begin();
-            Serial.print("[");
-            Serial.print(millis() / 1000);
-            Serial.println("s] Web server ready - browse to http://192.168.123.1");
+            Serial.printf("[%lus] Web server ready - browse to http://%s\n",
+                          millis() / 1000, WiFi.softAPIP().toString().c_str());
 
-            // 3) Wait for credentials, print debug every 5 seconds
+            // 5) Wait for credentials, print status every 5 seconds
             unsigned long lastDebug = millis();
-            bool clientSeen = false;
             while (!credentialsSaved) {
+                dns.processNextRequest();
                 server.handleClient();
                 timer::watchdog::feed();
 
                 if (millis() - lastDebug >= 5000) {
-                    int clients = WiFi.softAPgetStationNum();
-                    Serial.print("[");
-                    Serial.print(millis() / 1000);
-                    Serial.print("s] Waiting... clients connected: ");
-                    Serial.println(clients);
-                    if (clients > 0 && !clientSeen) {
-                        clientSeen = true;
-                        Serial.print("[");
-                        Serial.print(millis() / 1000);
-                        Serial.println("s] First client connected!");
-                    }
+                    Serial.printf("[%lus] Waiting... clients connected: %d\n",
+                                  millis() / 1000, WiFi.softAPgetStationNum());
                     lastDebug = millis();
                 }
                 delay(10);
@@ -211,15 +243,11 @@ h2{color:#0ff}
 
             server.stop();
             WiFi.softAPdisconnect(true);
-
-            if (credentialsSaved) {
-                Serial.println("AP shut down. Trying new credentials...");
-                delay(500);
-                return tryConnect(newSsid.c_str(), newPass.c_str());
-            }
-
-            Serial.println("AP timed out. No credentials received.");
-            return false;
+            WiFi.mode(WIFI_OFF);
+            Serial.println("Credentials saved. Restarting...");
+            delay(1000);
+            esp_restart();
+            return false; // unreachable
         }
     }
 

@@ -32,6 +32,11 @@ namespace config{
     // and password
     std::string mqttServerPassword="iamthepublisher";
 
+    // Power save: true=deep sleep between scans, false=WiFi stays on
+    bool powerSave = true;
+    // Test mode: true=scan every 10s, false=production interval (~15 min)
+    bool testMode = false;
+
     // timeZone: The sign is positive if the local time zone is west of the Prime Meridian and negative if it is east.
     const std::string timeZone="UTC-3";
 

@@ -9,6 +9,8 @@
 #include <Preferences.h>
 #include <esp_random.h>
 #include <Update.h>
+#include <BLEDevice.h>
+#include <esp_ota_ops.h>
 #include <set>
 
 namespace mqttconfig {
@@ -36,7 +38,8 @@ namespace mqttconfig {
         void saveSettings(const String& server, int port,
                           const String& user, const String& pass,
                           const String& topic,
-                          const String& macList) {
+                          const String& macList,
+                          bool powerSave, bool testMode) {
             preferences.begin(NVS_NAMESPACE, false);
             preferences.putString("server", server);
             preferences.putInt("port", port);
@@ -44,6 +47,8 @@ namespace mqttconfig {
             preferences.putString("pass", pass);
             preferences.putString("topic", topic);
             preferences.putString("macs", macList);
+            preferences.putBool("pwrsave", powerSave);
+            preferences.putBool("testmode", testMode);
             preferences.end();
             Serial.println("MQTT settings saved to NVS");
         }
@@ -110,6 +115,19 @@ namespace mqttconfig {
                 "<input name='pass' type='password' value='");
             html += String(config::mqttServerPassword.c_str());
             html += F("' maxlength='64'></div></div>");
+
+            // Mode checkboxes
+            html += F("<hr><h3>Device Mode</h3>"
+                "<div class='sensor'><input type='checkbox' name='pwrsave' value='1'");
+            if (config::powerSave) html += F(" checked");
+            html += F("><span class='mac'>Power Save</span>"
+                "<span class='tag tag-saved' style='background:#8e44ad'>deep sleep between scans</span></div>"
+                "<div class='sensor'><input type='checkbox' name='testmode' value='1'");
+            if (config::testMode) html += F(" checked");
+            html += F("><span class='mac'>Test Mode</span>"
+                "<span class='tag tag-saved' style='background:#e67e22'>scan every 10s</span></div>"
+                "<div class='hint'>Power Save off = WiFi stays on. "
+                "Test Mode = 10s scan interval (unchecked = ~15 min).</div>");
 
             // Sensor checklist section
             html += F("<hr><h3>Ruuvi Sensors</h3>");
@@ -209,10 +227,22 @@ h2{color:#0ff}
         void handleOtaResponse() {
             if (!otaServer) return;
             otaServer->sendHeader("Connection", "close");
+            std::string statusTopic = config::mqttTopicPrefix + "/status";
             if (Update.hasError()) {
                 otaServer->send_P(200, "text/html", UPDATE_FAIL_HTML);
+                char buf[128];
+                snprintf(buf, sizeof(buf), "OTA Failed: err=%u", Update.getError());
+                network::mqtt::publish(statusTopic, std::string(buf));
+                Serial.println(buf);
             } else {
                 otaServer->send_P(200, "text/html", UPDATE_OK_HTML);
+                const esp_partition_t* boot = esp_ota_get_boot_partition();
+                const esp_partition_t* run = esp_ota_get_running_partition();
+                char buf[192];
+                snprintf(buf, sizeof(buf), "OTA OK boot:%s run:%s - Restarting",
+                    boot ? boot->label : "?", run ? run->label : "?");
+                network::mqtt::publish(statusTopic, std::string(buf));
+                Serial.println(buf);
                 otaUpdateDone = true;
             }
         }
@@ -220,21 +250,43 @@ h2{color:#0ff}
         void handleOtaUpload() {
             if (!otaServer) return;
             HTTPUpload& upload = otaServer->upload();
+            std::string statusTopic = config::mqttTopicPrefix + "/status";
             if (upload.status == UPLOAD_FILE_START) {
-                Serial.printf("Firmware upload: %s\n", upload.filename.c_str());
+                // Free BLE memory (~65KB) so OTA has enough heap
+                BLEDevice::deinit(true);
+                Serial.printf("Firmware upload: %s (free heap: %u)\n",
+                              upload.filename.c_str(), ESP.getFreeHeap());
+                char buf[128];
+                snprintf(buf, sizeof(buf), "OTA start: %s heap=%u",
+                         upload.filename.c_str(), ESP.getFreeHeap());
+                network::mqtt::publish(statusTopic, std::string(buf));
                 if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
                     Update.printError(Serial);
+                    snprintf(buf, sizeof(buf), "OTA begin FAILED err=%u", Update.getError());
+                    network::mqtt::publish(statusTopic, std::string(buf));
                 }
             } else if (upload.status == UPLOAD_FILE_WRITE) {
                 timer::watchdog::feed();
+                if (!Update.isRunning()) return;  // abort if begin() failed
                 if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
                     Update.printError(Serial);
                 }
             } else if (upload.status == UPLOAD_FILE_END) {
+                if (!Update.isRunning()) {
+                    Serial.println("OTA upload aborted — Update never started");
+                    network::mqtt::publish(statusTopic, "OTA aborted - never started");
+                    return;
+                }
                 if (Update.end(true)) {
-                    Serial.printf("Update OK: %u bytes\n", upload.totalSize);
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "OTA written: %u bytes", upload.totalSize);
+                    Serial.println(buf);
+                    network::mqtt::publish(statusTopic, std::string(buf));
                 } else {
                     Update.printError(Serial);
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "OTA end FAILED err=%u", Update.getError());
+                    network::mqtt::publish(statusTopic, std::string(buf));
                 }
             }
         }
@@ -282,6 +334,8 @@ h2{color:#0ff}
                 String macStr = preferences.getString("macs", "");
                 config::macWhiteList = parseMacList(macStr);
             }
+            config::powerSave = preferences.getBool("pwrsave", true);
+            config::testMode = preferences.getBool("testmode", false);
             preferences.end();
         }
 
@@ -331,7 +385,10 @@ h2{color:#0ff}
             int port = portStr.toInt();
             if (port < 1 || port > 65535) port = 1883;
 
-            saveSettings(server, port, user, pass, topic, macs);
+            bool powerSave = srv.hasArg("pwrsave");
+            bool testMode = srv.hasArg("testmode");
+
+            saveSettings(server, port, user, pass, topic, macs, powerSave, testMode);
             applyToConfig();
             srv.send_P(200, "text/html", SAVED_HTML);
             Serial.println("MQTT config saved via portal");
@@ -428,6 +485,7 @@ h2{color:#0ff}
         server.stop();
 
         if (resetRequested || otaUpdateDone) {
+            network::mqtt::clearPortalFlag();
             delay(3000);
             esp_restart();
         } else if (settingsSaved) {
@@ -478,6 +536,7 @@ h2{color:#0ff}
         server.stop();
 
         if (resetRequested || otaUpdateDone) {
+            network::mqtt::clearPortalFlag();
             delay(3000);
             esp_restart();
         }

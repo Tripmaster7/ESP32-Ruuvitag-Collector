@@ -88,6 +88,12 @@ namespace network {
 
         void clearPortalFlag(){
             portalFlag = false;
+            // Clear the retained message on the broker so next boot won't reopen the portal
+            std::string openPortalTopic = config::mqttTopicPrefix + "/OpenPortal";
+            if(client.connected()){
+                client.publish(openPortalTopic.c_str(), "0", true);
+                Serial.println("Cleared retained OpenPortal message on broker");
+            }
         }
 
         void publish(std::string topic,std::string payload){
