@@ -38,7 +38,8 @@ namespace network {
                     Serial.println("MQTT: OpenPortal=1 received, starting config portal");
                     portalFlag = true;
                     std::string statusTopic = config::mqttTopicPrefix + "/status";
-                    client.publish(statusTopic.c_str(), "Portal Open");
+                    std::string portalMsg = "Portal Open http://" + std::string(WiFi.localIP().toString().c_str());
+                    client.publish(statusTopic.c_str(), portalMsg.c_str());
                 } else if (val == "0") {
                     Serial.println("MQTT: OpenPortal=0 received, closing config portal");
                     portalFlag = false;
@@ -94,6 +95,25 @@ namespace network {
                 client.publish(openPortalTopic.c_str(), "0", true);
                 Serial.println("Cleared retained OpenPortal message on broker");
             }
+        }
+
+        std::vector<std::pair<std::string,std::string>> messageBuffer;
+
+        void bufferMessage(std::string topic,std::string payload){
+            messageBuffer.push_back({topic,payload});
+        }
+
+        void flushBuffer(){
+            if(messageBuffer.empty()) return;
+            Serial.printf("MQTT flushing %d buffered messages\n", messageBuffer.size());
+            for(auto& msg : messageBuffer){
+                publish(msg.first, msg.second);
+            }
+            messageBuffer.clear();
+        }
+
+        bool bufferEmpty(){
+            return messageBuffer.empty();
         }
 
         void publish(std::string topic,std::string payload){

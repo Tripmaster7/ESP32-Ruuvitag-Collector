@@ -7,7 +7,7 @@
 #include <set>
 #include <esp_system.h>
 #include <BLEDevice.h>
-#define FIRMWARE_VERSION "2.6.3"
+#define FIRMWARE_VERSION "2.6.12"
 
 // See setting descriptions in config.cpp where you can also set values
 // Do not set any values here.

@@ -223,15 +223,23 @@ h2{color:#0ff}
 
         WebServer* otaServer = nullptr;
         volatile bool otaUpdateDone = false;
+        volatile bool otaInProgress = false;
+        volatile bool otaWritten = false;
+        volatile uint32_t otaBytesWritten = 0;
+        esp_ota_handle_t otaHandle = 0;
+        const esp_partition_t* otaPartition = nullptr;
 
         void handleOtaResponse() {
             if (!otaServer) return;
             otaServer->sendHeader("Connection", "close");
             std::string statusTopic = config::mqttTopicPrefix + "/status";
-            if (Update.hasError()) {
+
+            Serial.printf("OTA response: written=%d bytes=%u\n", otaWritten, otaBytesWritten);
+
+            if (!otaWritten) {
                 otaServer->send_P(200, "text/html", UPDATE_FAIL_HTML);
-                char buf[128];
-                snprintf(buf, sizeof(buf), "OTA Failed: err=%u", Update.getError());
+                char buf[192];
+                snprintf(buf, sizeof(buf), "OTA Failed: no data written (bytes=%u)", otaBytesWritten);
                 network::mqtt::publish(statusTopic, std::string(buf));
                 Serial.println(buf);
             } else {
@@ -239,12 +247,14 @@ h2{color:#0ff}
                 const esp_partition_t* boot = esp_ota_get_boot_partition();
                 const esp_partition_t* run = esp_ota_get_running_partition();
                 char buf[192];
-                snprintf(buf, sizeof(buf), "OTA OK boot:%s run:%s - Restarting",
-                    boot ? boot->label : "?", run ? run->label : "?");
+                snprintf(buf, sizeof(buf), "OTA OK boot:%s run:%s bytes=%u - Restarting",
+                    boot ? boot->label : "?", run ? run->label : "?", otaBytesWritten);
                 network::mqtt::publish(statusTopic, std::string(buf));
                 Serial.println(buf);
                 otaUpdateDone = true;
             }
+            otaWritten = false;
+            otaBytesWritten = 0;
         }
 
         void handleOtaUpload() {
@@ -252,42 +262,113 @@ h2{color:#0ff}
             HTTPUpload& upload = otaServer->upload();
             std::string statusTopic = config::mqttTopicPrefix + "/status";
             if (upload.status == UPLOAD_FILE_START) {
+                otaInProgress = true;
+                otaWritten = false;
+                otaBytesWritten = 0;
+                otaHandle = 0;
+                otaPartition = nullptr;
+
                 // Free BLE memory (~65KB) so OTA has enough heap
                 BLEDevice::deinit(true);
                 Serial.printf("Firmware upload: %s (free heap: %u)\n",
                               upload.filename.c_str(), ESP.getFreeHeap());
-                char buf[128];
-                snprintf(buf, sizeof(buf), "OTA start: %s heap=%u",
-                         upload.filename.c_str(), ESP.getFreeHeap());
-                network::mqtt::publish(statusTopic, std::string(buf));
-                if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
-                    Update.printError(Serial);
-                    snprintf(buf, sizeof(buf), "OTA begin FAILED err=%u", Update.getError());
+
+                const esp_partition_t* running = esp_ota_get_running_partition();
+
+                // Enumerate all app partitions for diagnostics
+                Serial.println("--- App partitions on flash ---");
+                esp_partition_iterator_t it = esp_partition_find(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, NULL);
+                while (it) {
+                    const esp_partition_t* p = esp_partition_get(it);
+                    Serial.printf("  %s: type=%u subtype=0x%02x addr=0x%06x size=0x%06x\n",
+                                  p->label, p->type, p->subtype, p->address, p->size);
+                    it = esp_partition_next(it);
+                }
+                esp_partition_iterator_release(it);
+                Serial.println("-------------------------------");
+
+                // Find the other OTA partition
+                otaPartition = esp_ota_get_next_update_partition(running);
+                if (otaPartition == running) {
+                    otaPartition = nullptr;
+                }
+
+                Serial.printf("Running: %s (subtype=0x%02x), OTA target: %s\n",
+                              running ? running->label : "?",
+                              running ? running->subtype : 0,
+                              otaPartition ? otaPartition->label : "NONE");
+
+                char buf[192];
+                if (!otaPartition) {
+                    snprintf(buf, sizeof(buf), "OTA FAILED: no valid target partition (running=%s sub=0x%02x)",
+                             running ? running->label : "?",
+                             running ? running->subtype : 0);
+                    Serial.println(buf);
                     network::mqtt::publish(statusTopic, std::string(buf));
+                    return;
+                }
+
+                snprintf(buf, sizeof(buf), "OTA start: %s heap=%u run:%s target:%s",
+                         upload.filename.c_str(), ESP.getFreeHeap(),
+                         running ? running->label : "?",
+                         otaPartition->label);
+                network::mqtt::publish(statusTopic, std::string(buf));
+
+                esp_err_t err = esp_ota_begin(otaPartition, OTA_SIZE_UNKNOWN, &otaHandle);
+                if (err != ESP_OK) {
+                    snprintf(buf, sizeof(buf), "esp_ota_begin FAILED: %s (0x%x)", esp_err_to_name(err), err);
+                    Serial.println(buf);
+                    network::mqtt::publish(statusTopic, std::string(buf));
+                    otaPartition = nullptr;
+                } else {
+                    Serial.println("esp_ota_begin() OK");
                 }
             } else if (upload.status == UPLOAD_FILE_WRITE) {
                 timer::watchdog::feed();
-                if (!Update.isRunning()) return;  // abort if begin() failed
-                if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
-                    Update.printError(Serial);
+                if (!otaPartition || !otaHandle) return;
+                esp_err_t err = esp_ota_write(otaHandle, upload.buf, upload.currentSize);
+                if (err != ESP_OK) {
+                    Serial.printf("esp_ota_write failed: %s\n", esp_err_to_name(err));
+                } else {
+                    otaBytesWritten += upload.currentSize;
                 }
             } else if (upload.status == UPLOAD_FILE_END) {
-                if (!Update.isRunning()) {
-                    Serial.println("OTA upload aborted — Update never started");
+                otaInProgress = false;
+                Serial.printf("OTA upload end, total: %u bytes, written: %u bytes\n", upload.totalSize, otaBytesWritten);
+                if (!otaPartition || !otaHandle) {
+                    Serial.println("OTA upload aborted — never started");
                     network::mqtt::publish(statusTopic, "OTA aborted - never started");
                     return;
                 }
-                if (Update.end(true)) {
+                esp_err_t err = esp_ota_end(otaHandle);
+                if (err != ESP_OK) {
                     char buf[128];
-                    snprintf(buf, sizeof(buf), "OTA written: %u bytes", upload.totalSize);
+                    snprintf(buf, sizeof(buf), "esp_ota_end FAILED: %s (0x%x)", esp_err_to_name(err), err);
+                    Serial.println(buf);
+                    network::mqtt::publish(statusTopic, std::string(buf));
+                    return;
+                }
+                err = esp_ota_set_boot_partition(otaPartition);
+                if (err != ESP_OK) {
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "esp_ota_set_boot FAILED: %s (0x%x)", esp_err_to_name(err), err);
                     Serial.println(buf);
                     network::mqtt::publish(statusTopic, std::string(buf));
                 } else {
-                    Update.printError(Serial);
+                    otaWritten = true;
                     char buf[128];
-                    snprintf(buf, sizeof(buf), "OTA end FAILED err=%u", Update.getError());
+                    snprintf(buf, sizeof(buf), "OTA written: %u bytes, boot set to %s",
+                             upload.totalSize, otaPartition->label);
+                    Serial.println(buf);
                     network::mqtt::publish(statusTopic, std::string(buf));
                 }
+            } else if (upload.status == UPLOAD_FILE_ABORTED) {
+                otaInProgress = false;
+                Serial.println("OTA upload ABORTED by client");
+                if (otaHandle) esp_ota_abort(otaHandle);
+                otaHandle = 0;
+                otaPartition = nullptr;
+                network::mqtt::publish(statusTopic, "OTA aborted by client");
             }
         }
 
@@ -476,7 +557,7 @@ h2{color:#0ff}
         server.begin();
 
         unsigned long start = millis();
-        while (!settingsSaved && !resetRequested && !otaUpdateDone && (millis() - start) < PORTAL_TIMEOUT_MS) {
+        while (!settingsSaved && !resetRequested && !otaUpdateDone && (otaInProgress || (millis() - start) < PORTAL_TIMEOUT_MS)) {
             server.handleClient();
             timer::watchdog::feed();
             delay(10);

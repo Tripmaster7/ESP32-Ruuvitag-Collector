@@ -57,9 +57,11 @@ void setup() {
   }
   Serial.println("MQTT connected");
 
-  // Publish online status with device IP
+  // Publish online status with device IP and firmware version
   std::string onlineTopic = config::mqttTopicPrefix + "/online";
   network::mqtt::publish(onlineTopic, std::string(WiFi.localIP().toString().c_str()));
+  std::string fwTopic = config::mqttTopicPrefix + "/firmware";
+  network::mqtt::publish(fwTopic, FIRMWARE_VERSION);
 
   BLEDevice::init("");
   global::pBLEScan = BLEDevice::getScan();
@@ -76,6 +78,12 @@ void setup() {
     Serial.println("MQTT reconnecting after BLE scan...");
     network::mqtt::begin();
   }
+  if(network::mqtt::bufferEmpty()){
+    std::string statusTopic = config::mqttTopicPrefix + "/status";
+    network::mqtt::publish(statusTopic, "No sensor active");
+    Serial.println("No sensor active");
+  }
+  network::mqtt::flushBuffer();
 
   // Subscribe and listen for OpenPortal command (use retained msg on broker)
   network::mqtt::subscribe();
@@ -108,16 +116,29 @@ void loop() {
 
     timer::watchdog::feed();
 
+    // Reconnect MQTT before scan so data can be published
+    if(!network::mqtt::isConnected()){
+      Serial.println("MQTT reconnecting before scan...");
+      network::mqtt::begin();
+    }
+
     // BLE scan — clear cache so devices are re-reported
     storage::begin();
     global::pBLEScan->clearResults();
     BLEScanResults foundDevices = global::pBLEScan->start(global::BLEscanTime);
     storage::end();
 
-    // Reconnect MQTT if needed
+    // Reconnect MQTT if BLE scan disrupted it
     if(!network::mqtt::isConnected()){
       network::mqtt::begin();
     }
+    // Publish sensor data or report no sensors found
+    if(network::mqtt::bufferEmpty()){
+      std::string statusTopic = config::mqttTopicPrefix + "/status";
+      network::mqtt::publish(statusTopic, "No sensor active");
+      Serial.println("No sensor active");
+    }
+    network::mqtt::flushBuffer();
 
     // Check for portal command
     network::mqtt::subscribe();
@@ -139,6 +160,9 @@ void loop() {
       unsigned long waitMs = interval - scanMs;
       unsigned long start = millis();
       while(millis() - start < waitMs){
+        if(!network::mqtt::isConnected()){
+          network::mqtt::begin();
+        }
         network::mqtt::loop();
         timer::watchdog::feed();
         delay(100);

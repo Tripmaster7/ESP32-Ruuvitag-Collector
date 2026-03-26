@@ -4,3 +4,4 @@
 .vscode/launch.json
 .vscode/ipch
 Ruuvitag data collector.code-workspace
+test_firmware.bin

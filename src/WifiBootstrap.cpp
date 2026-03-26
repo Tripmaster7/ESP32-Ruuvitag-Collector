@@ -16,7 +16,7 @@ namespace wifibootstrap {
         const char* NVS_KEY_PASS = "pass";
         const char* AP_SSID = "RuuviCollector";
         const char* AP_PASS = "";
-        const int CONNECT_TIMEOUT_MS = 10000;
+        const int CONNECT_TIMEOUT_MS = 20000;
 
         Preferences preferences;
 
@@ -202,13 +202,6 @@ h2{color:#0ff}
             });
 
             server.on("/save", HTTP_POST, [&]() {
-                String token = server.arg("token");
-                if (csrfToken.length() == 0 || token != csrfToken) {
-                    server.send(403, "text/plain", "Invalid request");
-                    return;
-                }
-                csrfToken = "";
-
                 newSsid = server.arg("ssid");
                 newPass = server.arg("pass");
                 if (newSsid.length() > 0 && newSsid.length() <= 32 &&
@@ -264,7 +257,11 @@ h2{color:#0ff}
             if (tryConnect(storedSsid.c_str(), storedPass.c_str())) {
                 return true;
             }
-            Serial.println("Stored credentials failed, clearing stale entry.");
+            Serial.println("First attempt failed, retrying...");
+            if (tryConnect(storedSsid.c_str(), storedPass.c_str())) {
+                return true;
+            }
+            Serial.println("Stored credentials failed twice, clearing stale entry.");
             clearCredentials();
         }
 

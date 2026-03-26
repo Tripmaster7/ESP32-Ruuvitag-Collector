@@ -112,5 +112,5 @@ void Datahandler::sendMqtt(){
     stream << "\"sequence\":" << measurement.getSequence() << "}";
 
     payload=stream.str();
-    network::mqtt::publish(topic,payload);
+    network::mqtt::bufferMessage(topic,payload);
 }

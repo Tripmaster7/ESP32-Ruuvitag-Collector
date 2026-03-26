@@ -10,13 +10,16 @@ Collect measurement data from [Ruuvitag](https://ruuvi.com/) Bluetooth Low Energ
 - **Sensor selection** — choose which Ruuvitags to monitor via checkboxes (discovered sensors shown automatically)
 - **OTA firmware updates** — upload new firmware via the web portal (no USB needed after initial flash)
 - **Remote portal access** — open the config portal remotely by publishing to an MQTT topic
+- **MQTT buffering** — sensor data buffered during BLE scan to avoid WiFi/BLE radio contention
+- **No-sensor detection** — publishes "No sensor active" when no Ruuvitags are in range
+- **Continuous mode** — optional always-on WiFi with configurable scan intervals (10s test / 15min production)
 - **SPIFFS offline storage** — measurements buffered locally when WiFi is off
 - **Deep sleep** — wakes at configurable intervals, scans BLE, publishes, and sleeps again
 - **Factory reset** — clear all stored WiFi and MQTT settings from the web portal
 
 ## Version
 
-Current firmware version: **2.5.0**
+Current firmware version: **2.6.12**
 
 ## Contributors
 
@@ -36,10 +39,10 @@ Current firmware version: **2.5.0**
 
 ### Captive Portal (recommended)
 
-On first boot (or when stored credentials fail), the device starts a WPA2-protected access point:
+On first boot (or when stored credentials fail twice), the device starts an open access point:
 
 - **SSID:** `RuuviCollector`
-- **Password:** `ruuvi1234`
+- **Password:** (open network)
 
 Connect to the AP and browse to `http://192.168.123.1`. Enter your home WiFi SSID and password. Credentials are stored in NVS (non-volatile storage) and persist across reboots and firmware updates.
 
@@ -83,7 +86,8 @@ Default MQTT values can also be set in `config.cpp`. These are used only until t
 |-------|-----------|-------------|
 | `<prefix>/<MAC>/state` | Publish | Sensor data JSON |
 | `<prefix>/online` | Publish | Device IP address on connect |
-| `<prefix>/status` | Publish | Portal status messages |
+| `<prefix>/firmware` | Publish | Firmware version on boot |
+| `<prefix>/status` | Publish | Status messages (portal, OTA, "No sensor active") |
 | `<prefix>/OpenPortal` | Subscribe | Send `1` (retained) to open portal, `0` to close |
 
 ### Example Sensor Payload
@@ -115,7 +119,13 @@ You can open the configuration portal remotely without physical access to the de
 
 ## OTA Firmware Updates
 
-The web portal includes a firmware upload section. Upload a `.bin` file and the device flashes the new firmware and restarts automatically. The partition table supports two app slots for safe OTA (rollback on failure).
+The web portal includes a firmware upload section. Upload a `.bin` file and the device flashes the new firmware and restarts automatically.
+
+- Uses ESP-IDF OTA API with explicit partition targeting (writes to the inactive slot)
+- Partition table (`partitions_ota.csv`) defines two 1.8MB app slots for safe OTA
+- Watchdog is fed during upload to prevent resets
+- Portal timeout is suspended during active uploads
+- Full flash erase is required when changing partition layouts
 
 ## Sensor Selection
 
@@ -132,7 +142,9 @@ All timing settings are in `config.cpp`:
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| `deepSleepWakeUpAtSecond` | Wake interval in seconds | `60` |
+| `powerSave` | `true` = deep sleep between scans, `false` = WiFi stays on | `true` |
+| `testMode` | `true` = 10s scan interval, `false` = 15min interval | `false` |
+| `deepSleepWakeUpAtSecond` | Wake interval in seconds (power save mode) | `60` |
 | `deepSleepWakeUpOffset` | Offset to shift wake-up time | `0` |
 | `turnOnWifiEvery` | WiFi activation interval in seconds (`0` = every wake) | `900` |
 
@@ -191,7 +203,8 @@ From the web portal, click the **Factory Reset** button to clear all stored WiFi
 
 ## Security
 
-- CSRF tokens on all portal form submissions
+- CSRF tokens on MQTT configuration portal form submissions
+- WiFi captive portal runs on isolated AP (no CSRF needed)
 - Input validation (printable ASCII only, length-limited) on all user-provided fields
 - PubSubClient patched for CVE-2023-52120 (buffer overflow)
 - MQTT callback accepts only exact topic matches with strict value checking

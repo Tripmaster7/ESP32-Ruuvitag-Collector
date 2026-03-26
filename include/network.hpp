@@ -9,6 +9,8 @@
 #include "WifiBootstrap.hpp"
 #include "PubSubClient.h"
 #include <sstream>
+#include <vector>
+#include <utility>
 
 namespace network {
     namespace wifi{
@@ -20,6 +22,9 @@ namespace network {
     namespace mqtt{
         bool begin();
         void publish(std::string topic,std::string payload);
+        void bufferMessage(std::string topic,std::string payload);
+        void flushBuffer();
+        bool bufferEmpty();
         void subscribe();
         void loop();
         bool isConnected();
