@@ -15,6 +15,7 @@
 namespace network {
     namespace wifi{
         bool begin();
+        bool reconnect();
     }
     namespace ntp{
         void update();

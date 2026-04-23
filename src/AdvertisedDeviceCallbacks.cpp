@@ -19,7 +19,7 @@ void AdvertisedDeviceCallbacks::onResult(BLEAdvertisedDevice advertisedDevice){
 
     for(auto m:config::macWhiteList){
         if(mac==m){
-            numberOfWhiteListedResults++;
+            foundWhiteListedMacs.insert(mac);
             processMac=true;
         }
     }
@@ -34,10 +34,14 @@ void AdvertisedDeviceCallbacks::onResult(BLEAdvertisedDevice advertisedDevice){
         dh.sendMqtt();
     }
     if(config::macWhiteList.size()>0){
-        if(numberOfWhiteListedResults==config::macWhiteList.size()){
+        if(foundWhiteListedMacs.size()==config::macWhiteList.size()){
             global::pBLEScan->stop();
         }
     }
+}
+
+void AdvertisedDeviceCallbacks::resetScanState() {
+    foundWhiteListedMacs.clear();
 }
 
 string AdvertisedDeviceCallbacks::buildMac(BLEAddress bleAddress) {

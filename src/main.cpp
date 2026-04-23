@@ -9,6 +9,8 @@
 #include "timer.hpp"
 #include "MqttConfig.hpp"
 
+static AdvertisedDeviceCallbacks* bleCallbacks = nullptr;
+
 void setup() {
   Serial.begin(115200);
   esp_ota_mark_app_valid_cancel_rollback();
@@ -65,7 +67,8 @@ void setup() {
 
   BLEDevice::init("");
   global::pBLEScan = BLEDevice::getScan();
-  global::pBLEScan->setAdvertisedDeviceCallbacks(new AdvertisedDeviceCallbacks());
+  bleCallbacks = new AdvertisedDeviceCallbacks();
+  global::pBLEScan->setAdvertisedDeviceCallbacks(bleCallbacks);
   global::pBLEScan->setActiveScan(false);
   BLEScanResults foundDevices = global::pBLEScan->start(global::BLEscanTime);
 
@@ -97,6 +100,7 @@ void setup() {
   // Check if portal was requested via MQTT
   if(network::mqtt::isPortalRequested()){
     Serial.println("Portal requested via MQTT, staying awake...");
+    BLEDevice::deinit(true);  // Free BLE radio/memory for web server
 
     mqttconfig::runConfigPortalUntil([]() -> bool {
       return !network::mqtt::isPortalRequested();
@@ -116,6 +120,12 @@ void loop() {
 
     timer::watchdog::feed();
 
+    // Ensure WiFi is connected
+    if(!WiFi.isConnected()){
+      network::wifi::reconnect();
+      timer::watchdog::feed();
+    }
+
     // Reconnect MQTT before scan so data can be published
     if(!network::mqtt::isConnected()){
       Serial.println("MQTT reconnecting before scan...");
@@ -125,6 +135,7 @@ void loop() {
     // BLE scan — clear cache so devices are re-reported
     storage::begin();
     global::pBLEScan->clearResults();
+    bleCallbacks->resetScanState();
     BLEScanResults foundDevices = global::pBLEScan->start(global::BLEscanTime);
     storage::end();
 
@@ -149,9 +160,16 @@ void loop() {
     }
     if(network::mqtt::isPortalRequested()){
       Serial.println("Portal requested via MQTT...");
+      BLEDevice::deinit(true);  // Free BLE radio/memory for web server
       mqttconfig::runConfigPortalUntil([]() -> bool {
         return !network::mqtt::isPortalRequested();
       });
+      // Re-init BLE after portal closes
+      BLEDevice::init("");
+      global::pBLEScan = BLEDevice::getScan();
+      bleCallbacks = new AdvertisedDeviceCallbacks();
+      global::pBLEScan->setAdvertisedDeviceCallbacks(bleCallbacks);
+      global::pBLEScan->setActiveScan(false);
     }
 
     // Wait for remaining interval
@@ -160,6 +178,9 @@ void loop() {
       unsigned long waitMs = interval - scanMs;
       unsigned long start = millis();
       while(millis() - start < waitMs){
+        if(!WiFi.isConnected()){
+          network::wifi::reconnect();
+        }
         if(!network::mqtt::isConnected()){
           network::mqtt::begin();
         }

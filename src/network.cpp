@@ -7,6 +7,27 @@ namespace network {
         bool begin(){
             return wifibootstrap::begin();
         }
+        bool reconnect(){
+            if(WiFi.isConnected()) return true;
+            Serial.println("WiFi reconnecting...");
+            WiFi.disconnect(true);
+            delay(100);
+            WiFi.mode(WIFI_STA);
+            WiFi.begin();  // reconnect with last known credentials
+            unsigned long start = millis();
+            while(WiFi.status() != WL_CONNECTED && (millis() - start) < 15000){
+                delay(500);
+                Serial.print(".");
+            }
+            Serial.println();
+            if(WiFi.isConnected()){
+                Serial.print("WiFi reconnected. IP: ");
+                Serial.println(WiFi.localIP());
+                return true;
+            }
+            Serial.println("WiFi reconnect failed");
+            return false;
+        }
     }
     namespace ntp {
         void update(){

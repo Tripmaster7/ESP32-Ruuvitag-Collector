@@ -9,13 +9,15 @@
 #include <sstream>
 #include <iomanip>
 #include <vector>
+#include <set>
 
 class AdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks{
 private:
-  int numberOfWhiteListedResults {0};
+  std::set<std::string> foundWhiteListedMacs;
   std::string buildMac(BLEAddress bleAddress);
 public:
   void onResult(BLEAdvertisedDevice advertisedDevice);
+  void resetScanState();
 };
 
 #endif

@@ -19,7 +19,7 @@ Collect measurement data from [Ruuvitag](https://ruuvi.com/) Bluetooth Low Energ
 
 ## Version
 
-Current firmware version: **2.6.12**
+Current firmware version: **2.6.14**
 
 ## Contributors
 
@@ -122,7 +122,7 @@ You can open the configuration portal remotely without physical access to the de
 The web portal includes a firmware upload section. Upload a `.bin` file and the device flashes the new firmware and restarts automatically.
 
 - Uses ESP-IDF OTA API with explicit partition targeting (writes to the inactive slot)
-- Partition table (`partitions_ota.csv`) defines two 1.8MB app slots for safe OTA
+- Partition table (`partitions_ota.csv`) defines two 1.94MB app slots for safe OTA
 - Watchdog is fed during upload to prevent resets
 - Portal timeout is suspended during active uploads
 - Full flash erase is required when changing partition layouts
@@ -135,6 +135,8 @@ Discovered Ruuvitags appear as checkboxes in the configuration portal:
 - **saved** — sensor is in the stored whitelist
 
 Check the sensors you want to monitor. If none are checked, all discovered sensors are monitored. Using a whitelist shortens BLE scan time and saves power — the scan stops as soon as all whitelisted devices are found.
+
+After saving sensor or MQTT settings, the device automatically reboots to ensure clean initialization with the new configuration.
 
 ## Data Collection Settings
 

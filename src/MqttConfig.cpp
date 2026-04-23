@@ -8,7 +8,6 @@
 #include <WebServer.h>
 #include <Preferences.h>
 #include <esp_random.h>
-#include <Update.h>
 #include <BLEDevice.h>
 #include <esp_ota_ops.h>
 #include <set>
@@ -189,16 +188,10 @@ namespace mqttconfig {
         }
 
         const char SAVED_HTML[] PROGMEM = R"rawhtml(
-<!DOCTYPE html><html><head>
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Saved</title>
-<style>
-body{font-family:sans-serif;background:#1a1a2e;color:#e0e0e0;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0}
-.card{background:#16213e;padding:2em;border-radius:12px;width:90%;max-width:360px;text-align:center}
-h2{color:#0ff}
-</style></head><body>
-<div class="card">
-<h2>Settings Saved</h2>
+<style>body{font-family:sans-serif;background:#1a1a2e;color:#e0e0e0;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0}.card{background:#16213e;padding:2em;border-radius:12px;width:90%;max-width:360px;text-align:center}h2{color:#0ff}</style></head><body>
+<div class="card"><h2>Settings Saved</h2>
 <p>MQTT configuration updated.<br>New settings will be used on the next data cycle.</p>
 </div></body></html>
 )rawhtml";
@@ -274,18 +267,6 @@ h2{color:#0ff}
                               upload.filename.c_str(), ESP.getFreeHeap());
 
                 const esp_partition_t* running = esp_ota_get_running_partition();
-
-                // Enumerate all app partitions for diagnostics
-                Serial.println("--- App partitions on flash ---");
-                esp_partition_iterator_t it = esp_partition_find(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, NULL);
-                while (it) {
-                    const esp_partition_t* p = esp_partition_get(it);
-                    Serial.printf("  %s: type=%u subtype=0x%02x addr=0x%06x size=0x%06x\n",
-                                  p->label, p->type, p->subtype, p->address, p->size);
-                    it = esp_partition_next(it);
-                }
-                esp_partition_iterator_release(it);
-                Serial.println("-------------------------------");
 
                 // Find the other OTA partition
                 otaPartition = esp_ota_get_next_update_partition(running);
@@ -570,7 +551,9 @@ h2{color:#0ff}
             delay(3000);
             esp_restart();
         } else if (settingsSaved) {
-            // settings already applied
+            Serial.println("Settings saved, restarting...");
+            delay(1000);
+            esp_restart();
         } else {
             Serial.println("MQTT config portal timed out");
         }
@@ -622,10 +605,12 @@ h2{color:#0ff}
             esp_restart();
         }
         if (settingsSaved) {
-            Serial.println("Settings saved, closing portal");
+            Serial.println("Settings saved, restarting...");
             std::string statusTopic = config::mqttTopicPrefix + "/status";
-            network::mqtt::publish(statusTopic, "Settings Saved");
+            network::mqtt::publish(statusTopic, "Settings saved, restarting");
             network::mqtt::clearPortalFlag();
+            delay(1000);
+            esp_restart();
         }
         Serial.println("Config portal closed");
     }
