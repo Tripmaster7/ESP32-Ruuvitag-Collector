@@ -20,6 +20,7 @@ namespace storage{
     void end();
     void write(std::string fileName,std::string data);
     void deleteOldestFile();
+    bool cleanup(uint32_t minimumFreeBytes=8192);
     uint32_t getFreeBytes();
   }
 }

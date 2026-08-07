@@ -43,15 +43,17 @@ namespace storage{
             file.close();                    
         }
 
-        void _deleteFile(fs::FS &fs,std::string fileName){
+        bool _deleteFile(fs::FS &fs,std::string fileName){
             fileName=_buildFileName(fileName);
             if(fs.exists(fileName.c_str())){
                 if(fs.remove(fileName.c_str())){
                     Serial.println("- file deleted");
+                    return true;
                 } else {
                     Serial.println("- delete failed");
                 }
             }
+            return false;
         } 
 
         std::string _getOldestFile(fs::FS &fs){
@@ -78,8 +80,9 @@ namespace storage{
             return oldestFileName;
         }
 
-        void _deleteOldestFile(fs::FS &fs){
-            _deleteFile(fs,_getOldestFile(fs));
+        bool _deleteOldestFile(fs::FS &fs){
+            std::string oldestFileName=_getOldestFile(fs);
+            return oldestFileName.size()>0 && _deleteFile(fs,oldestFileName);
         }
     }
 
@@ -99,11 +102,25 @@ namespace storage{
         }
 
         void write(std::string fileName,std::string data){
+            cleanup(8192+data.size());
             _write(SPIFFS,fsType,fileName,data);
         }
 
         void deleteOldestFile(){
             _deleteOldestFile(SPIFFS);
+        }
+
+        bool cleanup(uint32_t minimumFreeBytes){
+            if(minimumFreeBytes>SPIFFS.totalBytes()){
+                minimumFreeBytes=SPIFFS.totalBytes();
+            }
+            while(getFreeBytes()<minimumFreeBytes){
+                if(!_deleteOldestFile(SPIFFS)){
+                    Serial.println("SPIFFS: Cleanup could not free enough space");
+                    return false;
+                }
+            }
+            return true;
         }
 
         uint32_t getFreeBytes(){

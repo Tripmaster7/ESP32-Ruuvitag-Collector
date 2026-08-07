@@ -40,9 +40,7 @@ void setup() {
 
   storage::begin();
 
-  if(storage::spif::getFreeBytes()<8192){
-    storage::spif::deleteOldestFile();
-  }
+  storage::spif::cleanup();
 
   // Try MQTT connection — if it fails, open config portal so user can fix settings
   bool mqttConnected = network::mqtt::begin();
