@@ -5,7 +5,7 @@ Collect measurement data from [Ruuvitag](https://ruuvi.com/) Bluetooth Low Energ
 ## Features
 
 - **MQTT publishing** — sensor data sent as JSON to configurable topics
-- **WiFi captive portal** — zero-config WiFi provisioning via WPA2-protected AP
+- **WiFi captive portal** — zero-config WiFi provisioning via an open setup AP
 - **MQTT configuration portal** — configure broker, credentials, topic prefix, and sensor selection from a web UI
 - **Sensor selection** — choose which Ruuvitags to monitor via checkboxes (discovered sensors shown automatically)
 - **OTA firmware updates** — upload new firmware via the web portal (no USB needed after initial flash)
@@ -30,7 +30,7 @@ Current firmware version: **2.7.0**
 ## Quick Start
 
 1. Flash the firmware to an ESP32 via USB (see [Compiling](#compiling))
-2. Connect to the **RuuviCollector** WiFi AP (password: `ruuvi1234`)
+2. Connect to the **RuuviCollector** WiFi AP (open network, no password)
 3. Enter your home WiFi credentials in the captive portal
 4. The MQTT configuration portal opens automatically — enter your broker details
 5. The device begins its deep sleep cycle, scanning Ruuvitags and publishing data every 60 seconds
@@ -39,12 +39,17 @@ Current firmware version: **2.7.0**
 
 ### Captive Portal (recommended)
 
-On first boot (or when stored credentials fail twice), the device starts an open access point:
+On first boot (no WiFi configured), the device starts an open access point:
 
 - **SSID:** `RuuviCollector`
 - **Password:** (open network)
 
 Connect to the AP and browse to `http://192.168.123.1`. Enter your home WiFi SSID and password. Credentials are stored in NVS (non-volatile storage) and persist across reboots and firmware updates.
+
+### Behaviour on WiFi outages
+
+- **WiFi drops while running:** the device keeps reconnecting to the same network. It never falls back to the setup AP.
+- **Network unreachable at boot:** stored credentials are kept (never erased). The setup AP opens for 5 minutes; if no client connects, the device reboots and retries the known network. This recovers automatically after e.g. a router power cut.
 
 ### Compile-time defaults (fallback)
 
