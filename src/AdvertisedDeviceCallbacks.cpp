@@ -4,13 +4,10 @@
 
 using namespace std;
 
-void AdvertisedDeviceCallbacks::onResult(BLEAdvertisedDevice advertisedDevice){
+void AdvertisedDeviceCallbacks::onResult(NimBLEAdvertisedDevice* advertisedDevice){
     bool processMac=false;
-    BLEAddress bleAddress=BLEAddress(advertisedDevice.getAddress());
-    string data=advertisedDevice.getManufacturerData();
-    string mac;
-
-    mac=buildMac(bleAddress);
+    string data=advertisedDevice->getManufacturerData();
+    string mac=buildMac(advertisedDevice->getAddress());
 
     // Track all discovered Ruuvi sensors regardless of whitelist
     if(data.length() >= 2 && (uint8_t)data[0] == 0x99 && (uint8_t)data[1] == 0x04) {
@@ -44,10 +41,14 @@ void AdvertisedDeviceCallbacks::resetScanState() {
     foundWhiteListedMacs.clear();
 }
 
-string AdvertisedDeviceCallbacks::buildMac(BLEAddress bleAddress) {
-	stringstream stream;
-	for(int i=0;i<6;i++){
-		stream << setfill('0') << setw(2) << uppercase << hex << (int) ((uint8_t*) (bleAddress.getNative()))[i];
-	}
-    return stream.str();
+// "aa:bb:cc:dd:ee:ff" -> "AABBCCDDEEFF" (same format as before the NimBLE switch).
+// Note: NimBLEAddress::getNative() is little-endian, so use toString() instead.
+string AdvertisedDeviceCallbacks::buildMac(const NimBLEAddress& bleAddress) {
+    string s=bleAddress.toString();
+    string mac;
+    mac.reserve(12);
+    for(char c:s){
+        if(c!=':') mac+=(char)toupper((unsigned char)c);
+    }
+    return mac;
 }

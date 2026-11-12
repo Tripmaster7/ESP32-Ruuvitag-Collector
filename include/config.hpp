@@ -6,7 +6,7 @@
 #include <vector>
 #include <set>
 #include <esp_system.h>
-#include <BLEDevice.h>
+#include <NimBLEDevice.h>
 #define FIRMWARE_VERSION "2.6.14"
 
 // See setting descriptions in config.cpp where you can also set values
@@ -51,7 +51,7 @@ namespace global{
         uint8_t recordType:3;
     };
     extern RTC_DATA_ATTR int bootCount;
-    extern BLEScan* pBLEScan;
+    extern NimBLEScan* pBLEScan;
     extern const int BLEscanTime;
     extern const std::vector<RecordHeader>validHeaders;
     extern int bootCount;

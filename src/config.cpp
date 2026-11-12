@@ -63,7 +63,7 @@ namespace config{
 
 namespace global{
 
-    BLEScan* pBLEScan;
+    NimBLEScan* pBLEScan;
     const int BLEscanTime=10;
     RTC_DATA_ATTR int bootCount=1;
     const uint64_t nSToSFactor=1000000000;

@@ -11,6 +11,17 @@
 
 static AdvertisedDeviceCallbacks* bleCallbacks = nullptr;
 
+static void initBle(){
+  NimBLEDevice::init("");
+  global::pBLEScan = NimBLEDevice::getScan();
+  if(!bleCallbacks) bleCallbacks = new AdvertisedDeviceCallbacks();
+  global::pBLEScan->setAdvertisedDeviceCallbacks(bleCallbacks, false);
+  global::pBLEScan->setActiveScan(false);
+  // Same duty cycle as the previous Bluedroid defaults: leaves airtime for WiFi
+  global::pBLEScan->setInterval(50);
+  global::pBLEScan->setWindow(30);
+}
+
 void setup() {
   Serial.begin(115200);
   esp_ota_mark_app_valid_cancel_rollback();
@@ -45,6 +56,18 @@ void setup() {
   // Try MQTT connection — if it fails, open config portal so user can fix settings
   bool mqttConnected = network::mqtt::begin();
   while(!mqttConnected){
+    // WiFi may have dropped during setup — reconnect to the same network first
+    if(!WiFi.isConnected()){
+      network::wifi::reconnect();
+      timer::watchdog::feed();
+      mqttConnected = network::mqtt::begin();
+      if(mqttConnected) break;
+      if(!WiFi.isConnected()){
+        delay(5000);
+        timer::watchdog::feed();
+        continue;
+      }
+    }
     Serial.println("MQTT connect failed — opening config portal for reconfiguration");
     mqttconfig::runConfigPortal();
     timer::watchdog::feed();
@@ -63,12 +86,8 @@ void setup() {
   std::string fwTopic = config::mqttTopicPrefix + "/firmware";
   network::mqtt::publish(fwTopic, FIRMWARE_VERSION);
 
-  BLEDevice::init("");
-  global::pBLEScan = BLEDevice::getScan();
-  bleCallbacks = new AdvertisedDeviceCallbacks();
-  global::pBLEScan->setAdvertisedDeviceCallbacks(bleCallbacks);
-  global::pBLEScan->setActiveScan(false);
-  BLEScanResults foundDevices = global::pBLEScan->start(global::BLEscanTime);
+  initBle();
+  global::pBLEScan->start(global::BLEscanTime);
 
   storage::end();
   timer::wifi::updateWifiRequirements();
@@ -98,7 +117,7 @@ void setup() {
   // Check if portal was requested via MQTT
   if(network::mqtt::isPortalRequested()){
     Serial.println("Portal requested via MQTT, staying awake...");
-    BLEDevice::deinit(true);  // Free BLE radio/memory for web server
+    NimBLEDevice::deinit(true);  // Free BLE radio/memory for web server
 
     mqttconfig::runConfigPortalUntil([]() -> bool {
       return !network::mqtt::isPortalRequested();
@@ -134,7 +153,7 @@ void loop() {
     storage::begin();
     global::pBLEScan->clearResults();
     bleCallbacks->resetScanState();
-    BLEScanResults foundDevices = global::pBLEScan->start(global::BLEscanTime);
+    global::pBLEScan->start(global::BLEscanTime);
     storage::end();
 
     // Reconnect MQTT if BLE scan disrupted it
@@ -158,16 +177,12 @@ void loop() {
     }
     if(network::mqtt::isPortalRequested()){
       Serial.println("Portal requested via MQTT...");
-      BLEDevice::deinit(true);  // Free BLE radio/memory for web server
+      NimBLEDevice::deinit(true);  // Free BLE radio/memory for web server
       mqttconfig::runConfigPortalUntil([]() -> bool {
         return !network::mqtt::isPortalRequested();
       });
       // Re-init BLE after portal closes
-      BLEDevice::init("");
-      global::pBLEScan = BLEDevice::getScan();
-      bleCallbacks = new AdvertisedDeviceCallbacks();
-      global::pBLEScan->setAdvertisedDeviceCallbacks(bleCallbacks);
-      global::pBLEScan->setActiveScan(false);
+      initBle();
     }
 
     // Wait for remaining interval

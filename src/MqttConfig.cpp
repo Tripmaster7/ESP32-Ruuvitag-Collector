@@ -8,7 +8,7 @@
 #include <WebServer.h>
 #include <Preferences.h>
 #include <esp_random.h>
-#include <BLEDevice.h>
+#include <NimBLEDevice.h>
 #include <esp_ota_ops.h>
 #include <set>
 
@@ -262,7 +262,7 @@ namespace mqttconfig {
                 otaPartition = nullptr;
 
                 // Free BLE memory (~65KB) so OTA has enough heap
-                BLEDevice::deinit(true);
+                NimBLEDevice::deinit(true);
                 Serial.printf("Firmware upload: %s (free heap: %u)\n",
                               upload.filename.c_str(), ESP.getFreeHeap());
 

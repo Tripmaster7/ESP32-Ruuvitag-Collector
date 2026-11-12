@@ -3,20 +3,18 @@
 #ifndef AdvertisedDeviceCallbacks_hpp
 #define AdvertisedDeviceCallbacks_hpp
 
-#include <BLEDevice.h>
+#include <NimBLEDevice.h>
 #include "config.hpp"
 #include "Datahandler.hpp"
-#include <sstream>
-#include <iomanip>
 #include <vector>
 #include <set>
 
-class AdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks{
+class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks{
 private:
   std::set<std::string> foundWhiteListedMacs;
-  std::string buildMac(BLEAddress bleAddress);
+  std::string buildMac(const NimBLEAddress& bleAddress);
 public:
-  void onResult(BLEAdvertisedDevice advertisedDevice);
+  void onResult(NimBLEAdvertisedDevice* advertisedDevice) override;
   void resetScanState();
 };
 

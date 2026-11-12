@@ -17,8 +17,17 @@ namespace wifibootstrap {
         const char* AP_SSID = "RuuviCollector";
         const char* AP_PASS = "";
         const int CONNECT_TIMEOUT_MS = 20000;
+        const int RECONNECT_TIMEOUT_MS = 15000;
+        // When known credentials exist but the network is unreachable at boot,
+        // the setup AP only stays up this long, then the device reboots and
+        // retries the known network (e.g. router was still booting after a power cut).
+        const unsigned long PORTAL_TIMEOUT_WITH_CREDS_MS = 5UL * 60UL * 1000UL;
 
         Preferences preferences;
+
+        // Credentials of the network we successfully connected to (for runtime reconnects)
+        String activeSsid;
+        String activePass;
 
         String csrfToken;
 
@@ -85,6 +94,7 @@ h2{color:#0ff}
             Serial.println(ssid);
 
             WiFi.mode(WIFI_STA);
+            WiFi.setAutoReconnect(true);
             WiFi.begin(ssid, password);
 
             unsigned long start = millis();
@@ -98,6 +108,8 @@ h2{color:#0ff}
             if (WiFi.status() == WL_CONNECTED) {
                 Serial.print("WiFi connected. Local IP is ");
                 Serial.println(WiFi.localIP());
+                activeSsid = ssid;
+                activePass = password;
                 return true;
             }
             Serial.println("WiFi connection failed.");
@@ -149,7 +161,9 @@ h2{color:#0ff}
             return ok;
         }
 
-        bool runCaptivePortal() {
+        // timeoutMs == 0: wait forever for credentials.
+        // timeoutMs > 0: reboot after timeout to retry the known network.
+        bool runCaptivePortal(unsigned long timeoutMs) {
             Serial.printf("[%lus] Starting WiFi configuration AP...\n", millis() / 1000);
 
             bool apOk = startAP();
@@ -220,7 +234,9 @@ h2{color:#0ff}
                           millis() / 1000, WiFi.softAPIP().toString().c_str());
 
             // 5) Wait for credentials, print status every 5 seconds
+            unsigned long portalStart = millis();
             unsigned long lastDebug = millis();
+            bool timedOut = false;
             while (!credentialsSaved) {
                 dns.processNextRequest();
                 server.handleClient();
@@ -231,13 +247,23 @@ h2{color:#0ff}
                                   millis() / 1000, WiFi.softAPgetStationNum());
                     lastDebug = millis();
                 }
+                // Don't time out while someone is connected to the AP (may be typing)
+                if (timeoutMs > 0 && (millis() - portalStart) >= timeoutMs &&
+                    WiFi.softAPgetStationNum() == 0) {
+                    timedOut = true;
+                    break;
+                }
                 delay(10);
             }
 
             server.stop();
             WiFi.softAPdisconnect(true);
             WiFi.mode(WIFI_OFF);
-            Serial.println("Credentials saved. Restarting...");
+            if (timedOut) {
+                Serial.println("Setup AP timed out. Restarting to retry known WiFi...");
+            } else {
+                Serial.println("Credentials saved. Restarting...");
+            }
             delay(1000);
             esp_restart();
             return false; // unreachable
@@ -261,20 +287,59 @@ h2{color:#0ff}
             if (tryConnect(storedSsid.c_str(), storedPass.c_str())) {
                 return true;
             }
-            Serial.println("Stored credentials failed twice, clearing stale entry.");
-            clearCredentials();
+            // Keep the credentials: the network may just be temporarily down.
+            Serial.println("Stored WiFi not reachable (credentials kept).");
         }
 
         // 2) Try compile-time defaults (skip if still placeholder)
-        if (config::wiFiSSD.length() > 0 && config::wiFiSSD != "MyHomeWifiAP") {
+        bool hasDefaults = config::wiFiSSD.length() > 0 && config::wiFiSSD != "MyHomeWifiAP";
+        if (hasDefaults) {
             Serial.println("Trying compile-time WiFi defaults...");
             if (tryConnect(config::wiFiSSD.c_str(), config::wiFiPassword.c_str())) {
                 return true;
             }
         }
 
-        // 3) Fall back to AP setup — runs until user provides credentials
-        return runCaptivePortal();
+        // 3) Fall back to AP setup. If a known network exists, the AP only runs
+        //    for a limited time and then reboots to retry; otherwise it waits forever.
+        bool hasKnownNetwork = storedSsid.length() > 0 || hasDefaults;
+        return runCaptivePortal(hasKnownNetwork ? PORTAL_TIMEOUT_WITH_CREDS_MS : 0);
+    }
+
+    bool reconnect() {
+        if (WiFi.isConnected()) return true;
+
+        String ssid = activeSsid;
+        String pass = activePass;
+        if (ssid.length() == 0 && !loadCredentials(ssid, pass)) {
+            ssid = config::wiFiSSD.c_str();
+            pass = config::wiFiPassword.c_str();
+        }
+        if (ssid.length() == 0) return false;
+
+        Serial.print("WiFi reconnecting to ");
+        Serial.println(ssid);
+        WiFi.disconnect(false);
+        delay(100);
+        WiFi.mode(WIFI_STA);
+        WiFi.setAutoReconnect(true);
+        WiFi.begin(ssid.c_str(), pass.c_str());
+
+        unsigned long start = millis();
+        while (WiFi.status() != WL_CONNECTED && (millis() - start) < RECONNECT_TIMEOUT_MS) {
+            delay(500);
+            Serial.print(".");
+            timer::watchdog::feed();
+        }
+        Serial.println();
+
+        if (WiFi.isConnected()) {
+            Serial.print("WiFi reconnected. IP: ");
+            Serial.println(WiFi.localIP());
+            return true;
+        }
+        Serial.println("WiFi reconnect failed, will retry");
+        return false;
     }
 
     void clearCredentials() {
