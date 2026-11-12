@@ -19,7 +19,7 @@ Collect measurement data from [Ruuvitag](https://ruuvi.com/) Bluetooth Low Energ
 
 ## Version
 
-Current firmware version: **2.7.0**
+Current firmware version: **2.7.1**
 
 ## Contributors
 
@@ -78,6 +78,9 @@ The portal allows you to configure:
 | Password | MQTT authentication password | `iamthepublisher` |
 | Topic Prefix | Base topic for all published data | `ruuviesp32` |
 | Sensors | Checkboxes to select which Ruuvitags to monitor | All |
+| Power Save | Deep sleep between scans (unchecked = WiFi stays on) | on |
+| Sleep cycle (seconds) | Power save wake interval, aligned to the clock (30–3600) | `60` |
+| Test Mode | Continuous mode: scan every 10 s instead of ~15 min | off |
 
 All settings are stored in NVS and persist across reboots and firmware updates.
 
@@ -145,13 +148,13 @@ After saving sensor or MQTT settings, the device automatically reboots to ensure
 
 ## Data Collection Settings
 
-All timing settings are in `config.cpp`:
+Timing defaults are in `config.cpp`. `powerSave`, `testMode` and the sleep cycle can be changed at runtime in the web portal (the portal value overrides the default):
 
 | Setting | Description | Default |
 |---------|-------------|---------|
 | `powerSave` | `true` = deep sleep between scans, `false` = WiFi stays on | `true` |
 | `testMode` | `true` = 10s scan interval, `false` = 15min interval | `false` |
-| `deepSleepWakeUpAtSecond` | Wake interval in seconds (power save mode) | `60` |
+| `deepSleepWakeUpAtSecond` | Wake interval in seconds (power save mode), portal: "Sleep cycle" | `60` |
 | `deepSleepWakeUpOffset` | Offset to shift wake-up time | `0` |
 | `turnOnWifiEvery` | WiFi activation interval in seconds (`0` = every wake) | `900` |
 

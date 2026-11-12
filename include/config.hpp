@@ -7,7 +7,7 @@
 #include <set>
 #include <esp_system.h>
 #include <NimBLEDevice.h>
-#define FIRMWARE_VERSION "2.7.0"
+#define FIRMWARE_VERSION "2.7.1"
 
 // See setting descriptions in config.cpp where you can also set values
 // Do not set any values here.
@@ -17,7 +17,7 @@ namespace config{
     extern const std::string ntpServerIP;
 
     extern const int watchdogTimeout;
-    extern const int deepSleepWakeUpAtSecond;
+    extern int deepSleepWakeUpAtSecond;   // deep sleep cycle length in s (set via portal)
     extern const int deepSleepWakeUpOffset;
     extern const std::string timeZone;
     extern const int turnOnWifiEvery;

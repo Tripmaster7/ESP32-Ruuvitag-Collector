@@ -38,7 +38,7 @@ namespace mqttconfig {
                           const String& user, const String& pass,
                           const String& topic,
                           const String& macList,
-                          bool powerSave, bool testMode) {
+                          bool powerSave, bool testMode, int sleepSec) {
             preferences.begin(NVS_NAMESPACE, false);
             preferences.putString("server", server);
             preferences.putInt("port", port);
@@ -48,6 +48,7 @@ namespace mqttconfig {
             preferences.putString("macs", macList);
             preferences.putBool("pwrsave", powerSave);
             preferences.putBool("testmode", testMode);
+            preferences.putInt("sleepsec", sleepSec);
             preferences.end();
             Serial.println("MQTT settings saved to NVS");
         }
@@ -121,6 +122,12 @@ namespace mqttconfig {
             if (config::powerSave) html += F(" checked");
             html += F("><span class='mac'>Power Save</span>"
                 "<span class='tag tag-saved' style='background:#8e44ad'>deep sleep between scans</span></div>"
+                "<label>Sleep cycle (seconds)</label>"
+                "<input name='sleepsec' type='number' value='");
+            html += String(config::deepSleepWakeUpAtSecond);
+            html += F("' min='30' max='3600' step='1'>"
+                "<div class='hint'>Power Save only: the device wakes every N seconds, aligned to the clock "
+                "(e.g. 60 = every full minute, 300 = every 5 min). Range 30&ndash;3600.</div>"
                 "<div class='sensor'><input type='checkbox' name='testmode' value='1'");
             if (config::testMode) html += F(" checked");
             html += F("><span class='mac'>Test Mode</span>"
@@ -383,6 +390,13 @@ namespace mqttconfig {
             return result;
         }
 
+        // Below 30 s there may not be enough time for WiFi + scan + publish
+        int clampSleep(int sec) {
+            if (sec < 30) return 30;
+            if (sec > 3600) return 3600;
+            return sec;
+        }
+
         void applyToConfig() {
             preferences.begin(NVS_NAMESPACE, true);
             String server = preferences.getString("server", "");
@@ -398,6 +412,7 @@ namespace mqttconfig {
             }
             config::powerSave = preferences.getBool("pwrsave", true);
             config::testMode = preferences.getBool("testmode", false);
+            config::deepSleepWakeUpAtSecond = clampSleep(preferences.getInt("sleepsec", 60));
             preferences.end();
         }
 
@@ -449,8 +464,9 @@ namespace mqttconfig {
 
             bool powerSave = srv.hasArg("pwrsave");
             bool testMode = srv.hasArg("testmode");
+            int sleepSec = srv.hasArg("sleepsec") ? clampSleep(srv.arg("sleepsec").toInt()) : 60;
 
-            saveSettings(server, port, user, pass, topic, macs, powerSave, testMode);
+            saveSettings(server, port, user, pass, topic, macs, powerSave, testMode, sleepSec);
             applyToConfig();
             srv.send_P(200, "text/html", SAVED_HTML);
             Serial.println("MQTT config saved via portal");

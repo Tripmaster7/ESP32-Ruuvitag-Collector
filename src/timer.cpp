@@ -8,6 +8,10 @@ namespace timer{
         RTC_DATA_ATTR int wifiNeeded=0;
         hw_timer_t *timer = NULL;
         time_t now;
+        // Survives esp_restart(): lets the next boot tell our own watchdog
+        // restart apart from a normal software restart.
+        const uint32_t WDT_RESTART_MAGIC = 0xDEADB0D1;
+        RTC_NOINIT_ATTR uint32_t wdtRestartMarker;
         const int checkTime=1500000000;
 
         int roundDown(int valueIn){
@@ -34,6 +38,7 @@ namespace timer{
     namespace watchdog{
         void IRAM_ATTR resetModule() {
             ets_printf("Reset due to watchdog\n");  // ISR-safe (Serial is not)
+            wdtRestartMarker = WDT_RESTART_MAGIC;
             esp_restart();
         }
         void feed(){
@@ -51,10 +56,35 @@ namespace timer{
             global::bootCount++;
         }
 
+        // Prints why the chip started, e.g. "Woke up from deep sleep (timer), boot number: 74"
         void printBootCount(){
+            bool ownWatchdog = (wdtRestartMarker == WDT_RESTART_MAGIC);
+            wdtRestartMarker = 0;
+
+            const char* reason;
+            switch(esp_reset_reason()){
+                case ESP_RST_DEEPSLEEP:
+                    switch(esp_sleep_get_wakeup_cause()){
+                        case ESP_SLEEP_WAKEUP_TIMER: reason = "Woke up from deep sleep (timer)"; break;
+                        case ESP_SLEEP_WAKEUP_EXT0:
+                        case ESP_SLEEP_WAKEUP_EXT1:  reason = "Woke up from deep sleep (external)"; break;
+                        default:                     reason = "Woke up from deep sleep"; break;
+                    }
+                    break;
+                case ESP_RST_POWERON:  reason = "Power-on reset"; break;
+                case ESP_RST_EXT:      reason = "External reset"; break;
+                case ESP_RST_SW:       reason = ownWatchdog ? "Watchdog reset (hang detected)"
+                                                            : "Software restart"; break;
+                case ESP_RST_PANIC:    reason = ownWatchdog ? "Watchdog reset (hang detected)"
+                                                            : "Crash (panic) reset"; break;
+                case ESP_RST_INT_WDT:
+                case ESP_RST_TASK_WDT:
+                case ESP_RST_WDT:      reason = "Watchdog reset"; break;
+                case ESP_RST_BROWNOUT: reason = "Brownout reset (power supply too weak)"; break;
+                default:               reason = "Reset (unknown reason)"; break;
+            }
             Serial.println();
-            Serial.print("Boot number: ");
-            Serial.println(global::bootCount);
+            Serial.printf("%s, boot number: %d\n", reason, global::bootCount);
         }
 
         void start(){

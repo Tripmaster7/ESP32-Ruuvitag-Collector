@@ -45,7 +45,7 @@ namespace config{
     // Example value 120 causes wake-up at 12:00:00, 12:02:00, 12:04:00... and  ~110 s deep sleep.
     // Do not set value below 30 as there is maybe not enough time to handle
     // all the collected data in shorter time periods.
-    const int deepSleepWakeUpAtSecond=60;
+    int deepSleepWakeUpAtSecond=60;   // default; overridden by portal setting (NVS "sleepsec")
     // Example value -2 causes wake-up at 12:00:58, 12:01:58, 12:02:58
     const int deepSleepWakeUpOffset=0;
     
