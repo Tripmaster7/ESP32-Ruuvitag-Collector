@@ -14,7 +14,10 @@ Collect measurement data from [Ruuvitag](https://ruuvi.com/) Bluetooth Low Energ
 - **No-sensor detection** — publishes "No sensor active" when no Ruuvitags are in range
 - **Continuous mode** — optional always-on WiFi with configurable scan intervals (10s test / 15min production)
 - **SPIFFS offline storage** — measurements buffered locally when WiFi is off
-- **Deep sleep** — wakes at configurable intervals, scans BLE, publishes, and sleeps again
+- **Deep sleep** — wakes at a configurable interval (set in the web portal), scans BLE, publishes, and sleeps again
+- **Robust WiFi** — reconnects to the known network after drops; stored credentials are never erased on failure
+- **Boot/wake reason logging** — serial log shows whether the device woke from deep sleep, was power-cycled, or was reset by the watchdog
+- **Small footprint** — uses the NimBLE Bluetooth stack (~66% of the 1.94 MB app partition)
 - **Factory reset** — clear all stored WiFi and MQTT settings from the web portal
 
 ## Version
@@ -33,7 +36,7 @@ Current firmware version: **2.7.1**
 2. Connect to the **RuuviCollector** WiFi AP (open network, no password)
 3. Enter your home WiFi credentials in the captive portal
 4. The MQTT configuration portal opens automatically — enter your broker details
-5. The device begins its deep sleep cycle, scanning Ruuvitags and publishing data every 60 seconds
+5. The device begins its deep sleep cycle, scanning Ruuvitags and publishing data every 60 seconds (adjustable via **Sleep cycle** in the portal)
 
 ## WiFi Configuration
 
@@ -194,6 +197,27 @@ pio run --target upload
 # Monitor serial output
 pio device monitor --baud 115200
 ```
+
+## Serial Log
+
+Waking from deep sleep is a full restart of the ESP32 (only RTC memory survives, e.g. the boot counter), so every cycle prints the boot banner. The line after the firmware version tells you why the device started:
+
+```
+Firmware v2.7.1 running from partition: app1
+Woke up from deep sleep (timer), boot number: 74
+```
+
+| Message | Meaning |
+|---------|---------|
+| `Woke up from deep sleep (timer)` | Normal power-save cycle |
+| `Power-on reset` | Power connected / USB reset |
+| `External reset` | Reset button (EN pin) |
+| `Software restart` | Restart after saving settings, OTA update, etc. |
+| `Watchdog reset (hang detected)` | Firmware hung for 60 s and was restarted |
+| `Crash (panic) reset` | Firmware crashed |
+| `Brownout reset (power supply too weak)` | Supply voltage dropped |
+
+In power-save mode the log ends each cycle with `Deep sleep for N seconds starting`. N is the time remaining until the next aligned wake-up (e.g. with a 60 s cycle and 16 s awake time, N = 44).
 
 ## Testing Without a Ruuvitag
 
