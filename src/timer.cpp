@@ -33,7 +33,7 @@ namespace timer{
 
     namespace watchdog{
         void IRAM_ATTR resetModule() {
-            Serial.println("Reset due to watchdog\n");
+            ets_printf("Reset due to watchdog\n");  // ISR-safe (Serial is not)
             esp_restart();
         }
         void feed(){

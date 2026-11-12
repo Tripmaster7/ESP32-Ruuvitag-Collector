@@ -7,7 +7,7 @@
 #include <set>
 #include <esp_system.h>
 #include <NimBLEDevice.h>
-#define FIRMWARE_VERSION "2.6.14"
+#define FIRMWARE_VERSION "2.7.0"
 
 // See setting descriptions in config.cpp where you can also set values
 // Do not set any values here.

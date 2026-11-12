@@ -19,7 +19,7 @@ Collect measurement data from [Ruuvitag](https://ruuvi.com/) Bluetooth Low Energ
 
 ## Version
 
-Current firmware version: **2.6.14**
+Current firmware version: **2.7.0**
 
 ## Contributors
 

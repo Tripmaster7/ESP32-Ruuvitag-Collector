@@ -11,15 +11,33 @@
 
 static AdvertisedDeviceCallbacks* bleCallbacks = nullptr;
 
+// Non-blocking scan with our own deadline: never hangs and keeps feeding the watchdog
+static void runBleScan(){
+  bleCallbacks->resetScanState();
+  bool started = global::pBLEScan->start(global::BLEscanTime, nullptr, false);
+  if(!started){
+    Serial.println("BLE scan failed to start");
+    return;
+  }
+  unsigned long deadline = millis() + (unsigned long)global::BLEscanTime * 1000 + 2000;
+  while(global::pBLEScan->isScanning() && (long)(millis() - deadline) < 0){
+    timer::watchdog::feed();
+    delay(100);
+  }
+  if(global::pBLEScan->isScanning()){
+    Serial.println("BLE scan did not finish in time, stopping");
+    global::pBLEScan->stop();
+  }
+  timer::watchdog::feed();
+  bleCallbacks->processResults();
+}
+
 static void initBle(){
   NimBLEDevice::init("");
   global::pBLEScan = NimBLEDevice::getScan();
   if(!bleCallbacks) bleCallbacks = new AdvertisedDeviceCallbacks();
   global::pBLEScan->setAdvertisedDeviceCallbacks(bleCallbacks, false);
   global::pBLEScan->setActiveScan(false);
-  // Same duty cycle as the previous Bluedroid defaults: leaves airtime for WiFi
-  global::pBLEScan->setInterval(50);
-  global::pBLEScan->setWindow(30);
 }
 
 void setup() {
@@ -87,7 +105,7 @@ void setup() {
   network::mqtt::publish(fwTopic, FIRMWARE_VERSION);
 
   initBle();
-  global::pBLEScan->start(global::BLEscanTime);
+  runBleScan();
 
   storage::end();
   timer::wifi::updateWifiRequirements();
@@ -152,8 +170,7 @@ void loop() {
     // BLE scan — clear cache so devices are re-reported
     storage::begin();
     global::pBLEScan->clearResults();
-    bleCallbacks->resetScanState();
-    global::pBLEScan->start(global::BLEscanTime);
+    runBleScan();
     storage::end();
 
     // Reconnect MQTT if BLE scan disrupted it
